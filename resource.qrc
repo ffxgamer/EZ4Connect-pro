@@ -1,6 +1,7 @@
 <RCC>
     <qresource>
         <file>resource/icon.png</file>
+        <file>resource/update-macos.sh</file>
         <file>resource/mainwindow.qss</file>
         <file>resource/mainwindow-light.qss</file>
         <file>resource/mainwindow-dark.qss</file>

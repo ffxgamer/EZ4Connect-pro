@@ -67,6 +67,8 @@ private:
 
     void updateVersionInfo();
 
+    void openUpdateDialog();
+
     void setupTrayIcon();
 
     void setupProfileMenu();

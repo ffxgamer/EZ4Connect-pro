@@ -31,4 +31,10 @@ EZ4Connect Pro 基于 [EZ4Connect](https://github.com/chenx-dust/EZ4Connect)，�
 xattr -dr com.apple.quarantine "/Applications/EZ4Connect Pro.app"
 ```
 
+### macOS 应用内更新
+
+Apple 芯片版可通过主界面的「更新」检查、下载并安装后续版本。默认使用 `https://ghfast.top` 加速，也可以改为其他支持拼接 GitHub 链接的 HTTPS 代理，或留空直连；代理失败后会自动尝试直连。请只使用可信的代理。下载完成后会检查文件大小和 SHA-256，安装时自动移除隔离属性并重新启动，启动成功后显示提示。
+
+更新前请先断开 VPN 和系统代理，并确保应用已安装在当前用户可写入的位置。安装包使用临时签名而未公证；下载校验用于检测文件损坏，不能替代开发者身份认证。0.0.7 及之前的版本没有应用内更新功能，需要手动安装本版本一次。
+
 更多功能与高级用法请参阅 [原版项目](https://github.com/chenx-dust/EZ4Connect)。

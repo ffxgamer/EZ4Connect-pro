@@ -34,7 +34,9 @@
 #include "presentation/coordinators/connectionuicontroller.h"
 #include "presentation/dialogs/configurationguidedialog/configurationguidedialog.h"
 #include "presentation/dialogs/deleteprofiledialog/deleteprofiledialog.h"
+#include "presentation/dialogs/updatedialog/updatedialog.h"
 #include "presentation/presentationhelpers.h"
+#include "presentation/main/sidebarlayout.h"
 #include "ui_mainwindow.h"
 
 namespace
@@ -85,6 +87,8 @@ MainWindow::MainWindow(
     );
     QStyleHints *styleHints = QGuiApplication::styleHints();
     applyColorScheme(styleHints->colorScheme());
+    // Keep the controls below the status text in the same place when it wraps.
+    reserveSidebarTextSpace(ui->statusDetailLabel, ui->profileNameLabel, ui->profileDetailLabel);
     connect(styleHints, &QStyleHints::colorSchemeChanged,
             this, &MainWindow::applyColorScheme);
     authenticationDialogs = coordinator->authenticationDialogs();
@@ -106,6 +110,9 @@ MainWindow::MainWindow(
     connect(updateChecker, &UpdateChecker::uiUpdateAvailable, this,
             [this](const QString &latestVersion)
             {
+#if defined(Q_OS_MACOS) && defined(Q_PROCESSOR_ARM_64)
+                showNotification("EZ4Connect Pro", "发现新版本 " + latestVersion + "，点击应用中的更新按钮查看。", QSystemTrayIcon::MessageIcon::Information);
+#else
                 QMessageBox msgBox(this);
                 msgBox.setText("UI 版本更新");
                 msgBox.setInformativeText(
@@ -124,6 +131,7 @@ MainWindow::MainWindow(
                         )
                     );
                 }
+#endif
             });
     connect(applicationLogger, &ApplicationLogger::entryAdded, this,
             [this](const QString &entry)
@@ -158,6 +166,11 @@ MainWindow::MainWindow(
     setWindowTitle(QApplication::applicationDisplayName());
     connect(ui->newProfileButton, &QToolButton::clicked, this, &MainWindow::createProfile);
     connect(ui->deleteProfileButton, &QToolButton::clicked, this, &MainWindow::deleteCurrentProfile);
+#if defined(Q_OS_MACOS) && defined(Q_PROCESSOR_ARM_64)
+    connect(ui->updatePushButton, &QPushButton::clicked, this, &MainWindow::openUpdateDialog);
+#else
+    ui->updatePushButton->hide();
+#endif
 
     updateVersionInfo();
     updateConnectionState(connectionSession->state());
@@ -296,8 +309,11 @@ MainWindow::MainWindow(
             });
 
     // 帮助-检查更新
-    connect(ui->checkUpdateAction, &QAction::triggered,
-            updateChecker, &UpdateChecker::check);
+#if defined(Q_OS_MACOS) && defined(Q_PROCESSOR_ARM_64)
+    connect(ui->checkUpdateAction, &QAction::triggered, this, &MainWindow::openUpdateDialog);
+#else
+    connect(ui->checkUpdateAction, &QAction::triggered, updateChecker, &UpdateChecker::check);
+#endif
 
     // 帮助-项目主页
     connect(ui->projectAction, &QAction::triggered,
@@ -387,6 +403,29 @@ MainWindow::MainWindow(
             );
         }
     }
+    const QString updatedVersion = CommandLineOptions::value(qApp->arguments(), "--update-complete");
+    const QString updateError = CommandLineOptions::value(qApp->arguments(), "--update-error");
+    if (!updatedVersion.isEmpty() || !updateError.isEmpty())
+    {
+        QTimer::singleShot(0, this, [this, updatedVersion, updateError]()
+        {
+            show();
+            if (!updateError.isEmpty()) QMessageBox::warning(this, "更新失败", updateError);
+            else if (updatedVersion == QApplication::applicationVersion())
+                QMessageBox::information(this, "更新成功", "已成功更新至版本 " + updatedVersion + "。");
+            else QMessageBox::warning(this, "更新未完成", "启动版本与更新版本不一致，请检查安装包。");
+        });
+    }
+}
+
+void MainWindow::openUpdateDialog()
+{
+    UpdateDialog dialog([this]()
+    {
+        return !connectionSession->isActive() && !systemProxySession->isEnabled() && !systemProxySession->isBusy();
+    }, this);
+    QTimer::singleShot(0, &dialog, &UpdateDialog::checkForUpdates);
+    dialog.exec();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -508,10 +547,18 @@ void MainWindow::updateConnectionState(ConnectionState state)
     if (connectionSession->isActive() && connectionUiController != nullptr
         && !connectionUiController->selectedProfileIsConnected())
     {
-        detail = "当前连接：" + connectionUiController->connectedProfileName()
-            + "；已选择：" + (currentProfileId.isEmpty() ? "默认" : currentProfileId)
+        const QString connectedName = connectionUiController->connectedProfileName();
+        const QString selectedName = currentProfileId.isEmpty() ? "默认" : currentProfileId;
+        ui->statusDetailLabel->setToolTip("当前连接：" + connectedName + "；已选择：" + selectedName);
+        const auto shortName = [this](const QString &name)
+        {
+            return ui->statusDetailLabel->fontMetrics().elidedText(name, Qt::ElideRight, 90);
+        };
+        detail = "当前连接：" + shortName(connectedName)
+            + "；已选择：" + shortName(selectedName)
             + "。点击连接服务器后切换。";
     }
+    else ui->statusDetailLabel->setToolTip(detail);
 
     ui->statusTitleLabel->setText(title);
     ui->statusDetailLabel->setText(detail);
@@ -558,8 +605,13 @@ void MainWindow::updateProfileSummary()
         details.append(QStringLiteral("%1:%2").arg(host).arg(settings->value("ZJUConnect/ServerPort", 443).toInt()));
     }
 
-    ui->profileNameLabel->setText(profileName);
-    ui->profileDetailLabel->setText(details.join(QStringLiteral(" · ")));
+    const QString profileDetails = details.join(QStringLiteral(" · "));
+    ui->profileNameLabel->setToolTip(profileName);
+    ui->profileDetailLabel->setToolTip(profileDetails);
+    ui->profileNameLabel->setText(ui->profileNameLabel->fontMetrics().elidedText(
+        profileName, Qt::ElideRight, 250));
+    ui->profileDetailLabel->setText(ui->profileDetailLabel->fontMetrics().elidedText(
+        profileDetails, Qt::ElideRight, 250));
 }
 
 void MainWindow::setupTrayIcon()

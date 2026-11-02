@@ -75,6 +75,7 @@ QMenu::item {
 }
 
 QPushButton#guidePushButton,
+QPushButton#updatePushButton,
 QPushButton#settingPushButton,
 QPushButton#pushButton1,
 QPushButton#pushButton2,
@@ -91,6 +92,7 @@ QPushButton#clearLogPushButton {
 }
 
 QPushButton#guidePushButton:focus,
+QPushButton#updatePushButton:focus,
 QPushButton#settingPushButton:focus,
 QPushButton#pushButton1:focus,
 QPushButton#pushButton2:focus,
@@ -106,6 +108,7 @@ QPushButton#pushButton1 {
 }
 
 #guidePushButton,
+#updatePushButton,
 #settingPushButton,
 #copyLogPushButton,
 #clearLogPushButton,

@@ -59,6 +59,7 @@ set(SOURCE_FILES
     infrastructure/settings/settingsprofileloader.cpp
     infrastructure/storage/applicationpaths.cpp
     infrastructure/update/updatechecker.cpp
+    infrastructure/update/updatemanifest.cpp
     infrastructure/platform/platformsystemproxybackend.cpp
     infrastructure/platform/systemproxyfunctions.cpp
     infrastructure/coreprocess/zjuconnectprocess.cpp
@@ -71,6 +72,7 @@ set(SOURCE_FILES
     presentation/dialogs/authinfowindow/authinfowindow.cpp
     presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp
     presentation/dialogs/deleteprofiledialog/deleteprofiledialog.cpp
+    presentation/dialogs/updatedialog/updatedialog.cpp
     presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp
     presentation/dialogs/graphcaptchawindow/captchacanvas.cpp
     infrastructure/settings/profilemanager.cpp
@@ -104,7 +106,9 @@ elseif(APPLE)
     )
 
     set_target_properties(${PROJECT_NAME}
-        PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/resource/Info.plist")
+        PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/resource/Info.plist"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJ_VER}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJ_VER}")
 else()
     add_executable(${PROJECT_NAME}
         ${SOURCE_FILES}
@@ -243,6 +247,14 @@ if(BUILD_TESTING)
     target_link_libraries(updatechecker_test Qt::Core Qt::Gui Qt::Widgets Qt::Network Qt::Core5Compat)
     add_test(NAME updatechecker_test COMMAND updatechecker_test)
 
+    add_executable(updatemanifest_test
+        tests/updatemanifest_test.cpp
+        infrastructure/update/updatemanifest.cpp
+    )
+    target_include_directories(updatemanifest_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(updatemanifest_test Qt::Core)
+    add_test(NAME updatemanifest_test COMMAND updatemanifest_test)
+
     add_executable(settingsmigrator_test
         tests/settingsmigrator_test.cpp
         application/settingsmigrator.cpp
@@ -274,6 +286,7 @@ if(BUILD_TESTING)
     )
     set_target_properties(mainwindowlayout_test PROPERTIES
         AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/presentation/main")
+    target_include_directories(mainwindowlayout_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(mainwindowlayout_test Qt::Core Qt::Gui Qt::Widgets)
     add_test(NAME mainwindowlayout_test COMMAND mainwindowlayout_test)
     set_tests_properties(mainwindowlayout_test PROPERTIES

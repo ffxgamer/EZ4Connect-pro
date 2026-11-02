@@ -87,6 +87,7 @@ QMenu::item:selected {
 }
 
 QPushButton#guidePushButton,
+QPushButton#updatePushButton,
 QPushButton#settingPushButton,
 QPushButton#pushButton1,
 QPushButton#pushButton2,
@@ -99,6 +100,7 @@ QPushButton#clearLogPushButton {
 }
 
 QPushButton#guidePushButton:hover,
+QPushButton#updatePushButton:hover,
 QPushButton#settingPushButton:hover,
 QPushButton#pushButton1:hover,
 QPushButton#pushButton2:hover,
@@ -110,6 +112,7 @@ QPushButton#clearLogPushButton:hover {
 }
 
 QPushButton#guidePushButton:pressed,
+QPushButton#updatePushButton:pressed,
 QPushButton#settingPushButton:pressed,
 QPushButton#pushButton1:pressed,
 QPushButton#pushButton2:pressed,
@@ -120,6 +123,7 @@ QPushButton#clearLogPushButton:pressed {
 }
 
 QPushButton#guidePushButton:focus,
+QPushButton#updatePushButton:focus,
 QPushButton#settingPushButton:focus,
 QPushButton#pushButton1:focus,
 QPushButton#pushButton2:focus,
@@ -130,6 +134,7 @@ QPushButton#clearLogPushButton:focus {
 }
 
 QPushButton#guidePushButton:disabled,
+QPushButton#updatePushButton:disabled,
 QPushButton#settingPushButton:disabled,
 QPushButton#pushButton1:disabled,
 QPushButton#pushButton2:disabled,
