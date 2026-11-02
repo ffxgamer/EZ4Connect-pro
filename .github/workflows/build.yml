@@ -232,6 +232,15 @@ jobs:
         run: |
           ./scripts/macos-sign-app.sh "./${{ env.TARGET_NAME }}.app"
 
+      - name: Sign app bundle locally
+        if: steps.signing.outputs.enabled != 'true'
+        run: |
+          codesign --force --deep --sign - --preserve-metadata=entitlements "./${{ env.TARGET_NAME }}.app"
+
+      - name: Verify app signature
+        run: |
+          codesign --verify --deep --strict "./${{ env.TARGET_NAME }}.app"
+
       - name: Package dmg file
         run: |
           brew install create-dmg
@@ -340,6 +349,15 @@ jobs:
           CODESIGN_IDENTITY: ${{ secrets.MACOS_CERT_IDENTITY }}
         run: |
           ./scripts/macos-sign-app.sh "./${{ env.TARGET_NAME }}.app"
+
+      - name: Sign app bundle locally
+        if: steps.signing.outputs.enabled != 'true'
+        run: |
+          codesign --force --deep --sign - --preserve-metadata=entitlements "./${{ env.TARGET_NAME }}.app"
+
+      - name: Verify app signature
+        run: |
+          codesign --verify --deep --strict "./${{ env.TARGET_NAME }}.app"
 
       - name: Package dmg file
         run: |
