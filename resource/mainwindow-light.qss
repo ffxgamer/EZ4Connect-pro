@@ -201,3 +201,9 @@ QScrollBar::handle:vertical {
 QScrollBar::handle:vertical:hover {
     background: #a5b7c0;
 }
+
+QPushButton#profileSelectButton { color: #2e3b43; background: transparent; }
+QPushButton#profileSelectButton:hover { background: #f0f7fa; }
+QPushButton#profileSelectButton:checked { background: #e1f1f9; border-color: #a9cfe2; color: #176b92; }
+QToolButton#newProfileButton, QToolButton#profileEditButton { color: #506b7a; background: transparent; }
+QToolButton#newProfileButton:hover, QToolButton#profileEditButton:hover { background: #e1f1f9; }

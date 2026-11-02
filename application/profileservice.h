@@ -27,7 +27,7 @@ public:
     bool usesOverrideConfiguration() const;
 
     bool switchTo(const QString &profileId);
-    QString createAndSwitch(const QString &requestedName);
+    QString createAndSwitch(const QString &requestedName, bool copyCurrent = true);
     bool renameCurrent(const QString &newProfileId);
     bool removeCurrentAndSwitchToDefault();
 

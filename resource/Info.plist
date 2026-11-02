@@ -13,9 +13,11 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleLongVersionString</key>
-	<string>EZ4Connect</string>
+	<string>EZ4Connect Pro</string>
 	<key>CFBundleName</key>
-	<string>EZ4Connect</string>
+	<string>EZ4Connect Pro</string>
+	<key>CFBundleDisplayName</key>
+	<string>EZ4Connect Pro</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

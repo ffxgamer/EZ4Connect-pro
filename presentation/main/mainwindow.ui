@@ -17,7 +17,7 @@
    </size>
   </property>
   <property name="windowTitle">
-   <string>EZ4Connect</string>
+   <string>EZ4Connect Pro</string>
   </property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QVBoxLayout" name="pageLayout">
@@ -73,7 +73,7 @@
           <item>
            <widget class="QLabel" name="applicationNameLabel">
             <property name="text">
-             <string>EZ4Connect</string>
+             <string>EZ4Connect Pro</string>
             </property>
            </widget>
           </item>
@@ -287,10 +287,32 @@
           </widget>
          </item>
          <item>
-          <widget class="QLabel" name="profileEyebrowLabel">
-           <property name="text">
-            <string>当前配置</string>
-           </property>
+          <layout class="QHBoxLayout" name="profileHeaderLayout">
+           <item>
+            <widget class="QLabel" name="profileEyebrowLabel">
+             <property name="text"><string>VPN 配置</string></property>
+            </widget>
+           </item>
+           <item><spacer name="profileHeaderSpacer">
+            <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+           </spacer></item>
+           <item>
+            <widget class="QToolButton" name="newProfileButton">
+             <property name="toolTip"><string>新增 VPN 配置</string></property>
+             <property name="accessibleName"><string>新增 VPN 配置</string></property>
+             <property name="text"><string>＋</string></property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QListWidget" name="profileList">
+           <property name="minimumSize"><size><width>0</width><height>75</height></size></property>
+           <property name="maximumSize"><size><width>16777215</width><height>140</height></size></property>
+           <property name="selectionMode"><enum>QAbstractItemView::SelectionMode::NoSelection</enum></property>
+           <property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum></property>
+           <property name="accessibleName"><string>VPN 配置列表</string></property>
           </widget>
          </item>
          <item>

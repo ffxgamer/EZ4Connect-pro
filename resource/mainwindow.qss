@@ -139,3 +139,26 @@ QScrollBar::sub-page:vertical {
     background: transparent;
     height: 0;
 }
+
+#profileList {
+    border: none;
+    background: transparent;
+    outline: none;
+}
+
+QPushButton#profileSelectButton {
+    text-align: left;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 5px 9px;
+    min-height: 25px;
+}
+
+QToolButton#newProfileButton,
+QToolButton#profileEditButton {
+    border: 1px solid transparent;
+    border-radius: 5px;
+    min-width: 28px;
+    min-height: 28px;
+    font-size: 16px;
+}

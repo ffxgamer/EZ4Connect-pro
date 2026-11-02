@@ -150,7 +150,7 @@ bool ProfileManager::removeProfile(const QString &profileId) const
 QString ProfileManager::normalizeProfileId(const QString &name) const
 {
     QString normalized = name.trimmed();
-    normalized.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+    normalized.replace(QRegularExpression("[^\\p{L}\\p{N}_ -]"), "_");
     normalized.replace(QRegularExpression("_+"), "_");
     if (normalized.startsWith('_'))
     {

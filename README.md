@@ -1,4 +1,31 @@
-# EZ4Connect
+# EZ4Connect Pro
+
+EZ4Connect Pro 基于 [EZ4Connect](https://github.com/chenx-dust/EZ4Connect)，支持在主界面管理多条 VPN 配置。每条配置分别保存服务器地址、端口、账号、密码和认证方式。
+
+在“VPN 配置”旁点击“＋”，输入名称并完成配置引导，即可新增一条独立配置。点击列表中的配置可直接切换；如果 VPN 正在连接，程序会先断开，再使用所选配置重新连接。点击某条配置旁的齿轮可编辑该配置；编辑时会先断开当前连接。取消新建引导不会创建配置。
+
+Pro 保留原版的配置路径，因此两者会共用已有配置。旧版地址列表中当前选中的地址仍保留在原配置内，其他仅保存地址的记录不会自动变成独立账号配置。
+
+本仓库通过 GitHub Actions 每 5 分钟检查上游 `master`：发现更新时先合并并运行 Linux 构建和测试，全部通过后自动推送到 Pro 的 `master`。如果合并冲突、测试失败、主分支在检查期间发生变化或分支保护不允许推送，工作流会失败并保留远端主分支，需要检查 Actions 日志并处理。GitHub 定时任务可能延迟，因此并非严格实时。工作流需要仓库内容写权限；如需触发其他依赖 push 事件的工作流，或分支保护要求特定身份，可以配置具备相应权限的 `UPSTREAM_SYNC_TOKEN` secret。运行中的 Pro 只检查本仓库发布版本，不会提示安装原版更新。
+
+## 自动发布 Pro
+
+将需要发布的代码提交并推送到本仓库后，创建并推送版本标签，例如：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+标签使用 `v主版本.次版本.修订版本` 格式，也支持 `v1.0.0-rc.1` 这类预发布版本。工作流会运行测试，构建 Windows、macOS 和 Linux 的 x64 与 arm64 共六个安装包，在全部成功后自动创建 GitHub Release 并上传附件；带后缀的版本会标记为预发布。重跑已有版本时会替换同名附件。Actions 需要仓库内容写入权限。
+
+macOS 默认生成未签名、未公证的 DMG，安装时可能需要手动允许打开。如需签名和 Apple 公证，请在仓库 Actions secrets 中同时配置 `MACOS_CERT_P12`（P12 文件的 Base64 内容）、`MACOS_CERT_PASSWORD`、`MACOS_CERT_IDENTITY`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD` 和 `APPLE_TEAM_ID`。只配置其中一部分会使构建失败，避免误以为发布包已完成公证。
+
+手动运行 Build 工作流可生成构建产物，但不会创建 Release；正式发布请推送版本标签。
+
+以下为上游项目的说明。
+
+## 上游 EZ4Connect
 
 *前身为 HITsz Connect for Windows*
 
@@ -19,7 +46,9 @@
 
 ## 使用方式
 
-在本项目的 [Releases](https://github.com/chenx-dust/EZ4Connect/releases) 页面下载最新版本：
+以下下载链接和文件名适用于上游 EZ4Connect；Pro 的发布版本请查看 [EZ4Connect Pro Releases](https://github.com/ffxgamer/EZ4Connect-pro/releases)。
+
+上游 [Releases](https://github.com/chenx-dust/EZ4Connect/releases)：
 
 - **Windows 用户**：下载 `EZ4Connect-vX.X.X-windows-ARCH.zip` ，解压至同一目录下，双击运行 `EZ4Connect.exe` ；
   - 如果遇到缺少 DLL 等问题，请先下载安装 Microsoft Visual C++ 可再发行程序包版本（[x64](https://aka.ms/vs/17/release/vc_redist.x64.exe) | [arm64](https://aka.ms/vs/17/release/vc_redist.arm64.exe)），再运行程序；

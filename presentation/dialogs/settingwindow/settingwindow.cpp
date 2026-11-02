@@ -419,12 +419,21 @@ void SettingWindow::applySettings()
 
 bool SettingWindow::isAuthSettingChanged()
 {
-    if (ui->atrustRadioButton->isChecked() == false &&
-        settings->value("ZJUConnect/Protocol").toString() != "atrust")
-        return false;
-    if (ui->atrustRadioButton->isChecked() == true &&
-        settings->value("ZJUConnect/Protocol").toString() != "atrust")
+    const QString currentProtocol = ui->atrustRadioButton->isChecked() ? "atrust" : "easyconnect";
+    if (currentProtocol != settings->value("ZJUConnect/Protocol").toString() ||
+        ui->serverAddressLineEdit->text() != settings->value("ZJUConnect/ServerAddress").toString() ||
+        ui->serverPortSpinBox->value() != settings->value("ZJUConnect/ServerPort").toInt() ||
+        ui->usernameLineEdit->text() != settings->value("Credential/Username").toString() ||
+        ui->passwordLineEdit->text().toUtf8() != QByteArray::fromBase64(settings->value("Credential/Password").toByteArray()) ||
+        ui->totpSecretLineEdit->text() != settings->value("Credential/TOTPSecret").toString() ||
+        ui->certFileLineEdit->text() != settings->value("Credential/CertFile").toString() ||
+        ui->certPasswordLineEdit->text().toUtf8() != QByteArray::fromBase64(settings->value("Credential/CertPassword").toByteArray()) ||
+        ui->countryCodeLineEdit->text() != settings->value("ZJUConnect/PhoneCountryCode").toString() ||
+        ui->phoneNumberLineEdit->text() != settings->value("ZJUConnect/PhoneNumber").toString())
         return true;
+    if (currentProtocol != "atrust")
+        return false;
+
     QString currentAuthType;
     if (ui->casRadioButton->isChecked())
         currentAuthType = "cas";
@@ -438,7 +447,5 @@ bool SettingWindow::isAuthSettingChanged()
     return currentAuthType != settings->value("ZJUConnect/AuthType").toString() ||
            ui->loginDomainLineEdit->text() != settings->value("ZJUConnect/LoginDomain").toString() ||
            ((currentAuthType == "cas" || currentAuthType == "httpsOauth2") &&
-            ui->loginUrlLineEdit->text() != settings->value("ZJUConnect/LoginURL").toString()) ||
-           ui->serverAddressLineEdit->text() != settings->value("ZJUConnect/ServerAddress").toString() ||
-           ui->serverPortSpinBox->value() != settings->value("ZJUConnect/ServerPort").toInt();
+            ui->loginUrlLineEdit->text() != settings->value("ZJUConnect/LoginURL").toString());
 }

@@ -68,7 +68,11 @@ public:
     ) const override
     {
         const QString id = normalizeProfileId(requestedName);
-        return !id.isEmpty() && QFile::copy(sourcePath, profilePath(id)) ? id : QString();
+        if (id.isEmpty()) return {};
+        if (!sourcePath.isEmpty())
+            return QFile::copy(sourcePath, profilePath(id)) ? id : QString();
+        QFile file(profilePath(id));
+        return file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ? id : QString();
     }
 
     bool renameProfile(
@@ -201,6 +205,35 @@ bool managesCurrentProfileAsOneUnit()
     return true;
 }
 
+bool keepsServerAndCredentialsPerProfile()
+{
+    QTemporaryDir directory;
+    auto backend = std::make_unique<FakeProfileBackend>(directory.path());
+    ProfileService service(std::move(backend));
+    service.settings()->setValue("ZJUConnect/ServerAddress", "one.example");
+    service.settings()->setValue("Credential/Username", "alice");
+    service.settings()->setValue("Credential/Password", "YWxpY2UtcGFzcw==");
+    if (service.createAndSwitch("work", false) != "work" ||
+        service.settings()->contains("Credential/Username") ||
+        service.settings()->contains("Credential/Password") ||
+        service.settings()->contains("ZJUConnect/ServerAddress"))
+        return false;
+    service.settings()->setValue("ZJUConnect/ServerAddress", "two.example");
+    service.settings()->setValue("Credential/Username", "bob");
+    service.settings()->setValue("Credential/Password", "Ym9iLXBhc3M=");
+    if (!service.switchTo("") ||
+        service.settings()->value("ZJUConnect/ServerAddress").toString() != "one.example" ||
+        service.settings()->value("Credential/Username").toString() != "alice" ||
+        service.settings()->value("Credential/Password").toString() != "YWxpY2UtcGFzcw==")
+        return false;
+    if (!service.switchTo("work") ||
+        service.settings()->value("ZJUConnect/ServerAddress").toString() != "two.example" ||
+        service.settings()->value("Credential/Username").toString() != "bob" ||
+        service.settings()->value("Credential/Password").toString() != "Ym9iLXBhc3M=")
+        return false;
+    return true;
+}
+
 bool acceptsCustomAsARegularProfileId()
 {
     QTemporaryDir directory;
@@ -265,6 +298,7 @@ int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
     return managesCurrentProfileAsOneUnit()
+        && keepsServerAndCredentialsPerProfile()
         && acceptsCustomAsARegularProfileId()
         && switchesAwayFromAnOverrideNamedCustom() ? 0 : 1;
 }

@@ -86,12 +86,12 @@ bool ProfileService::switchTo(const QString &profileId)
     return true;
 }
 
-QString ProfileService::createAndSwitch(const QString &requestedName)
+QString ProfileService::createAndSwitch(const QString &requestedName, bool copyCurrent)
 {
     currentSettings->sync();
     const QString profileId = profileBackend->createProfile(
         requestedName,
-        currentSettings->fileName()
+        copyCurrent ? currentSettings->fileName() : QString()
     );
     if (profileId.isEmpty() || !switchTo(profileId))
     {

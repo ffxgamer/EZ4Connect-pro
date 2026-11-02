@@ -20,7 +20,7 @@ int main(int argc, char *argv[])
 {
     SingleApplication app(argc, argv, false, SingleApplication::Mode::System);
     QApplication::setApplicationName(ApplicationConstants::ApplicationName);
-    QApplication::setApplicationDisplayName(ApplicationConstants::ApplicationName);
+    QApplication::setApplicationDisplayName("EZ4Connect Pro");
     QApplication::setApplicationVersion(PROJ_VER);
     QLocale::setDefault(QLocale(QLocale::Chinese, QLocale::SimplifiedChineseScript, QLocale::China));
 

@@ -73,6 +73,12 @@ private:
 
     void refreshProfileMenu();
 
+    void refreshProfileList();
+
+    void requestProfileSelection(
+        const QString &profileId, bool edit = false, bool overrideTarget = false
+    );
+
     bool switchProfile(const QString &profileId);
 
     void createProfile();
@@ -113,6 +119,12 @@ private:
     QSettings *settings;
     ProfileService *profileService;
     QString currentProfileId;
+    QString pendingProfileId;
+    bool profileSwitchPending = false;
+    bool pendingProfileEdit = false;
+    bool pendingProfileReconnect = false;
+    bool pendingSwitchWasConnected = false;
+    bool pendingProfileOverride = false;
 
     QPointer<SettingWindow> settingWindow;
 

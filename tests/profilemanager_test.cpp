@@ -29,6 +29,14 @@ bool createsPhysicalFilesForEmptyProfiles()
         qCritical() << "empty named profile file was not created";
         return false;
     }
+    const QString chineseId = manager.createProfile(QStringLiteral("公司 VPN"));
+    if (chineseId != QStringLiteral("公司 VPN") ||
+        !manager.listProfiles().contains(chineseId) || !manager.setActiveProfile(chineseId) ||
+        manager.activeProfile() != chineseId)
+    {
+        qCritical() << "Unicode profile name was not preserved";
+        return false;
+    }
     return true;
 }
 }

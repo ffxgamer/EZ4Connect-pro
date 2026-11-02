@@ -1,0 +1,56 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: master
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+      - name: Merge upstream
+        id: merge
+        run: |
+          git remote add upstream https://github.com/chenx-dust/EZ4Connect.git
+          git fetch upstream master
+          if git merge-base --is-ancestor upstream/master HEAD; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-edit --no-ff upstream/master
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+      - name: Install Qt
+        if: steps.merge.outputs.changed == 'true'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.3'
+          host: 'linux'
+          target: 'desktop'
+          arch: 'linux_gcc_64'
+          modules: 'qt5compat qtpositioning qtserialport qtwebchannel qtwebengine'
+          cache: 'true'
+          cache-key-prefix: 'install-qt-action-linux_gcc_64'
+      - name: Build and test merged code
+        if: steps.merge.outputs.changed == 'true'
+        run: |
+          cmake -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release -S . -B build
+          cmake --build build --config Release --parallel "$(nproc)"
+          ctest --test-dir build --build-config Release --output-on-failure
+      - name: Push merged code
+        if: steps.merge.outputs.changed == 'true'
+        run: git push origin HEAD:master

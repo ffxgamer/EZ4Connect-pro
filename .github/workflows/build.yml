@@ -1,11 +1,9 @@
 name: Build
 
 on:
-  release:
-    types: [ published ]
   push:
     branches: [ master, dev ]
-    tags-ignore: [ 'v*' ]
+    tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -22,13 +20,62 @@ on:
         default: ''
         description: "Version (e.g. v0.0.0)"
 
+permissions:
+  contents: read
+
 env:
   QT_VERSION: '6.10.3'
   TARGET_NAME: 'EZ4Connect'
-  DISPLAY_NAME: 'EZ4Connect'
+  DISPLAY_NAME: 'EZ4Connect Pro'
 
 jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.version.outputs.release }}
+      version: ${{ steps.version.outputs.version }}
+      artifact_version: ${{ steps.version.outputs.artifact_version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Validate version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          MANUAL_NIGHTLY: ${{ inputs.nightly }}
+          MANUAL_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          release=false
+          version=''
+          artifact_version=nightly
+          if [[ "$EVENT_NAME" == push && "$REF_TYPE" == tag ]]; then
+            release=true
+            version="$REF_NAME"
+            artifact_version="$version"
+          elif [[ "$EVENT_NAME" == workflow_dispatch && "$MANUAL_NIGHTLY" == false ]]; then
+            version="$MANUAL_VERSION"
+          fi
+          if [[ -n "$version" ]] && [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: use v1.2.3 or v1.2.3-rc.1" >&2
+            exit 1
+          fi
+          if [[ "$EVENT_NAME" == workflow_dispatch && "$MANUAL_NIGHTLY" == false && -z "$version" ]]; then
+            echo "A version is required for a non-nightly manual build." >&2
+            exit 1
+          fi
+          prerelease=false
+          if [[ "$version" == *-* ]]; then prerelease=true; fi
+          {
+            echo "release=$release"
+            echo "version=$version"
+            echo "artifact_version=$artifact_version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
   unit-tests:
+    needs: metadata
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -57,9 +104,10 @@ jobs:
           ctest --test-dir build --build-config Release --output-on-failure
 
   build-windows-x64:
+    needs: metadata
     runs-on: windows-latest
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}-windows-x64
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-windows-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -76,8 +124,8 @@ jobs:
 
       - name: Configure
         env:
-          NIGHTLY_BUILD: ${{ inputs.nightly || github.event_name != 'release' }}
-          RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+          NIGHTLY_BUILD: ${{ needs.metadata.outputs.release != 'true' && (github.event_name != 'workflow_dispatch' || inputs.nightly) }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           mkdir build
           if ( [bool]::Parse("${{ env.NIGHTLY_BUILD }}") ) {
@@ -104,9 +152,10 @@ jobs:
           path: ${{ env.ARCHIVE_NAME }}.zip
 
   build-windows-arm64:
+    needs: metadata
     runs-on: windows-11-arm
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}-windows-arm64
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-windows-arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -124,8 +173,8 @@ jobs:
 
       - name: Configure
         env:
-          NIGHTLY_BUILD: ${{ inputs.nightly || github.event_name != 'release' }}
-          RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+          NIGHTLY_BUILD: ${{ needs.metadata.outputs.release != 'true' && (github.event_name != 'workflow_dispatch' || inputs.nightly) }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           mkdir build
           if ( [bool]::Parse("${{ env.NIGHTLY_BUILD }}") ) {
@@ -152,9 +201,10 @@ jobs:
           path: ${{ env.ARCHIVE_NAME }}.zip
 
   build-macos-x64:
-    runs-on: macos-14
+    needs: metadata
+    runs-on: macos-15
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}-macos-x64
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-macos-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -171,8 +221,8 @@ jobs:
 
       - name: Configure
         env:
-          NIGHTLY_BUILD: ${{ inputs.nightly || github.event_name != 'release' }}
-          RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+          NIGHTLY_BUILD: ${{ needs.metadata.outputs.release != 'true' && (github.event_name != 'workflow_dispatch' || inputs.nightly) }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           mkdir build
           if ${{ env.NIGHTLY_BUILD }} ; then
@@ -190,8 +240,34 @@ jobs:
         run: |
           ./scripts/deploy-macos.sh "${{ env.TARGET_NAME }}" "build" "x86_64" "${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}"
 
+      - name: Check macOS signing configuration
+        id: signing
+        if: needs.metadata.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_CERT_IDENTITY: ${{ secrets.MACOS_CERT_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          count=0
+          for name in MACOS_CERT_P12 MACOS_CERT_PASSWORD MACOS_CERT_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -n "${!name}" ]]; then count=$((count + 1)); fi
+          done
+          if [[ "$count" == 0 ]]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'No signing secrets configured; the macOS DMG will be unsigned and not notarized.'
+          elif [[ "$count" == 6 ]]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Configure all six macOS signing and notarization secrets, or none.' >&2
+            exit 1
+          fi
+
       - name: Import macOS signing certificate
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        if: steps.signing.outputs.enabled == 'true'
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -208,14 +284,14 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH"
 
       - name: Sign app bundle
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        if: steps.signing.outputs.enabled == 'true'
         env:
           CODESIGN_IDENTITY: ${{ secrets.MACOS_CERT_IDENTITY }}
         run: |
           ./scripts/macos-sign-app.sh "./${{ env.TARGET_NAME }}.app"
 
       - name: Package dmg file
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        if: needs.metadata.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           brew install create-dmg
           mkdir dmg-build
@@ -229,7 +305,7 @@ jobs:
             ${{ env.ARCHIVE_NAME }}.dmg dmg-build
 
       - name: Notarize and staple dmg
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        if: steps.signing.outputs.enabled == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -238,28 +314,29 @@ jobs:
           ./scripts/macos-notarize-dmg.sh "${{ env.ARCHIVE_NAME }}.dmg"
 
       - name: Upload artifact (dmg)
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        if: needs.metadata.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARCHIVE_NAME }}
           path: ${{ env.ARCHIVE_NAME }}.dmg
 
       - name: Package zip file
-        if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
+        if: needs.metadata.outputs.release != 'true' && github.event_name != 'workflow_dispatch'
         run: |
           tar -cvf ${{ env.ARCHIVE_NAME }}.tar ${{ env.TARGET_NAME }}.app
 
       - name: Upload artifact (tar)
         uses: actions/upload-artifact@v4
-        if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
+        if: needs.metadata.outputs.release != 'true' && github.event_name != 'workflow_dispatch'
         with:
           name: ${{ env.ARCHIVE_NAME }}
           path: ${{ env.ARCHIVE_NAME }}.tar
 
   build-macos-arm64:
-    runs-on: macos-14
+    needs: metadata
+    runs-on: macos-15
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}-macos-arm64
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-macos-arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -276,8 +353,8 @@ jobs:
 
       - name: Configure
         env:
-          NIGHTLY_BUILD: ${{ inputs.nightly || github.event_name != 'release' }}
-          RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+          NIGHTLY_BUILD: ${{ needs.metadata.outputs.release != 'true' && (github.event_name != 'workflow_dispatch' || inputs.nightly) }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           mkdir build
           if ${{ env.NIGHTLY_BUILD }} ; then
@@ -295,8 +372,34 @@ jobs:
         run: |
           ./scripts/deploy-macos.sh "${{ env.TARGET_NAME }}" "build" "arm64" "${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}"
 
+      - name: Check macOS signing configuration
+        id: signing
+        if: needs.metadata.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_CERT_IDENTITY: ${{ secrets.MACOS_CERT_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          count=0
+          for name in MACOS_CERT_P12 MACOS_CERT_PASSWORD MACOS_CERT_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -n "${!name}" ]]; then count=$((count + 1)); fi
+          done
+          if [[ "$count" == 0 ]]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'No signing secrets configured; the macOS DMG will be unsigned and not notarized.'
+          elif [[ "$count" == 6 ]]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Configure all six macOS signing and notarization secrets, or none.' >&2
+            exit 1
+          fi
+
       - name: Import macOS signing certificate
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        if: steps.signing.outputs.enabled == 'true'
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -313,14 +416,14 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH"
 
       - name: Sign app bundle
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        if: steps.signing.outputs.enabled == 'true'
         env:
           CODESIGN_IDENTITY: ${{ secrets.MACOS_CERT_IDENTITY }}
         run: |
           ./scripts/macos-sign-app.sh "./${{ env.TARGET_NAME }}.app"
 
       - name: Package dmg file
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        if: needs.metadata.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           brew install create-dmg
           mkdir dmg-build
@@ -334,7 +437,7 @@ jobs:
             ${{ env.ARCHIVE_NAME }}.dmg dmg-build
 
       - name: Notarize and staple dmg
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        if: steps.signing.outputs.enabled == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -343,28 +446,29 @@ jobs:
           ./scripts/macos-notarize-dmg.sh "${{ env.ARCHIVE_NAME }}.dmg"
 
       - name: Upload artifact (dmg)
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        if: needs.metadata.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARCHIVE_NAME }}
           path: ${{ env.ARCHIVE_NAME }}.dmg
 
       - name: Package zip file
-        if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
+        if: needs.metadata.outputs.release != 'true' && github.event_name != 'workflow_dispatch'
         run: |
           tar -cvf ${{ env.ARCHIVE_NAME }}.tar ${{ env.TARGET_NAME }}.app
 
       - name: Upload artifact (tar)
         uses: actions/upload-artifact@v4
-        if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
+        if: needs.metadata.outputs.release != 'true' && github.event_name != 'workflow_dispatch'
         with:
           name: ${{ env.ARCHIVE_NAME }}
           path: ${{ env.ARCHIVE_NAME }}.tar
 
   build-linux-x64:
+    needs: metadata
     runs-on: ubuntu-22.04
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}-linux-x64
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-linux-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -381,8 +485,8 @@ jobs:
 
       - name: Configure
         env:
-          NIGHTLY_BUILD: ${{ inputs.nightly || github.event_name != 'release' }}
-          RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+          NIGHTLY_BUILD: ${{ needs.metadata.outputs.release != 'true' && (github.event_name != 'workflow_dispatch' || inputs.nightly) }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           mkdir build
           if ${{ env.NIGHTLY_BUILD }} ; then
@@ -408,9 +512,10 @@ jobs:
           path: ${{ env.ARCHIVE_NAME }}.AppImage
 
   build-linux-arm64:
+    needs: metadata
     runs-on: ubuntu-24.04-arm
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}-linux-arm64
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-linux-arm64
     steps:
       - uses: actions/checkout@v4
         
@@ -432,8 +537,8 @@ jobs:
 
       - name: Configure
         env:
-          NIGHTLY_BUILD: ${{ inputs.nightly || github.event_name != 'release' }}
-          RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+          NIGHTLY_BUILD: ${{ needs.metadata.outputs.release != 'true' && (github.event_name != 'workflow_dispatch' || inputs.nightly) }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           mkdir build
           if ${{ env.NIGHTLY_BUILD }} ; then
@@ -459,9 +564,9 @@ jobs:
           path: ${{ env.ARCHIVE_NAME }}.AppImage
 
   release:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: needs.metadata.outputs.release == 'true'
     needs:
+      - metadata
       - unit-tests
       - build-windows-x64
       - build-windows-arm64
@@ -469,79 +574,40 @@ jobs:
       - build-macos-arm64
       - build-linux-x64
       - build-linux-arm64
-    env:
-      ARCHIVE_PREFIX: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}
-      AUR_PACKAGE_NAME: ez4connect
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download artifacts
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: ${{ env.ARCHIVE_PREFIX }}-*
+          pattern: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-*
+          path: release-assets
           merge-multiple: true
-
-      - name: Upload to release
+      - name: Create or update release
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.metadata.outputs.version }}
+          PREFIX: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}
+          PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
         run: |
-          gh release upload ${{ github.event.release.tag_name }} ${{ env.ARCHIVE_PREFIX }}-*
-
-      - name: Update AUR PKGBUILD
-        if: ${{ !github.event.release.prerelease }}
-        env:
-          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          if [ -z "$AUR_SSH_PRIVATE_KEY" ]; then
-            echo "AUR_SSH_PRIVATE_KEY is not set, skipping AUR update."
-            exit 0
-          fi
-
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
-          chmod 600 ~/.ssh/aur
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
-
-          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes"
-          git clone ssh://aur@aur.archlinux.org/${{ env.AUR_PACKAGE_NAME }}.git aur
-          cd aur
-
-          sudo apt-get update
-          sudo apt-get install -y pacman-package-manager
-
-          VERSION="${RELEASE_TAG#v}"
-          PKG_VERSION="${VERSION%%-*}"
-          CURRENT_PKG_VERSION="$(sed -n 's/^pkgver=//p' PKGBUILD)"
-          CURRENT_PKG_REL="$(sed -n 's/^pkgrel=//p' PKGBUILD)"
-          if [ "$CURRENT_PKG_VERSION" = "$PKG_VERSION" ]; then
-            PKG_REL=$((CURRENT_PKG_REL + 1))
+          set -euo pipefail
+          assets=(
+            "release-assets/$PREFIX-windows-x64.zip"
+            "release-assets/$PREFIX-windows-arm64.zip"
+            "release-assets/$PREFIX-macos-x64.dmg"
+            "release-assets/$PREFIX-macos-arm64.dmg"
+            "release-assets/$PREFIX-linux-x64.AppImage"
+            "release-assets/$PREFIX-linux-arm64.AppImage"
+          )
+          for asset in "${assets[@]}"; do
+            test -s "$asset" || { echo "Missing release asset: $asset" >&2; exit 1; }
+          done
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
           else
-            PKG_REL=1
+            flags=(--verify-tag --generate-notes --title "$TAG")
+            if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
+            gh release create "$TAG" "${assets[@]}" "${flags[@]}"
           fi
-
-          if grep -q '^_releasever=' PKGBUILD; then
-            sed -i "s/^_releasever=.*/_releasever=${VERSION}/" PKGBUILD
-          else
-            sed -i "/^pkgrel=/a _releasever=${VERSION}" PKGBUILD
-          fi
-          sed -i 's/${pkgver}/${_releasever}/g' PKGBUILD
-
-          SOURCE_URL="https://github.com/chenx-dust/EZ4Connect/archive/refs/tags/v${VERSION}.tar.gz"
-          SOURCE_SHA256="$(curl -L "$SOURCE_URL" | sha256sum | awk '{print $1}')"
-
-          sed -i "s/^pkgver=.*/pkgver=${PKG_VERSION}/" PKGBUILD
-          sed -i "s/^pkgrel=.*/pkgrel=${PKG_REL}/" PKGBUILD
-          sed -i "s/^sha256sums=.*/sha256sums=('${SOURCE_SHA256}')/" PKGBUILD
-          makepkg --printsrcinfo > .SRCINFO
-
-          if git diff --quiet; then
-            echo "No AUR changes to commit."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add PKGBUILD .SRCINFO
-          git commit -m "Update to ${VERSION}"
-          git push

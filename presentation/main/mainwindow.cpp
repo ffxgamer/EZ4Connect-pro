@@ -11,6 +11,10 @@
 #include <QGuiApplication>
 #include <QActionGroup>
 #include <QInputDialog>
+#include <QHBoxLayout>
+#include <QListWidget>
+#include <QTemporaryDir>
+#include <QToolButton>
 #include <QMargins>
 #include <QStyle>
 #include <QStyleHints>
@@ -21,6 +25,7 @@
 #include "application/applicationlogger.h"
 #include "application/applicationconstants.h"
 #include "application/commandlineoptions.h"
+#include "application/defaultsettings.h"
 #include "application/settingsmigrator.h"
 #include "infrastructure/coreprocess/devicetrust.h"
 #include "infrastructure/logging/applicationlogfile.h"
@@ -149,6 +154,8 @@ MainWindow::MainWindow(
     )));
 
     ui->applicationNameLabel->setText(QApplication::applicationDisplayName());
+    setWindowTitle(QApplication::applicationDisplayName());
+    connect(ui->newProfileButton, &QToolButton::clicked, this, &MainWindow::createProfile);
 
     updateVersionInfo();
     updateConnectionState(connectionSession->state());
@@ -165,6 +172,8 @@ MainWindow::MainWindow(
             [&]()
             {
                 settingWindow = new SettingWindow(this, settings, currentProfileId);
+                connect(settingWindow, &QDialog::finished, this,
+                        [this](int) { updateProfileSummary(); });
                 settingWindow->show();
             });
 
@@ -384,7 +393,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
     {
         event->ignore();
         hide();
-        showNotification("EZ4Connect", "程序已最小化到系统托盘，单击图标可恢复窗口。", QSystemTrayIcon::MessageIcon::Information);
+        showNotification("EZ4Connect Pro", "程序已最小化到系统托盘，单击图标可恢复窗口。", QSystemTrayIcon::MessageIcon::Information);
     }
     else
     {
@@ -401,7 +410,7 @@ void MainWindow::changeEvent(QEvent *event)
         {
             event->ignore();
             hide();
-            showNotification("EZ4Connect", "程序已最小化到系统托盘，单击图标可恢复窗口。", QSystemTrayIcon::MessageIcon::Information);
+            showNotification("EZ4Connect Pro", "程序已最小化到系统托盘，单击图标可恢复窗口。", QSystemTrayIcon::MessageIcon::Information);
         }
     }
     else
@@ -528,7 +537,13 @@ void MainWindow::updateProfileSummary()
     ).toString().trimmed();
 
     QStringList details{protocol};
-    details.append(server.isEmpty() ? QStringLiteral("尚未配置服务器") : server);
+    if (server.isEmpty())
+        details.append(QStringLiteral("尚未配置服务器"));
+    else
+    {
+        const QString host = server.contains(':') ? QStringLiteral("[%1]").arg(server) : server;
+        details.append(QStringLiteral("%1:%2").arg(host).arg(settings->value("ZJUConnect/ServerPort", 443).toInt()));
+    }
 
     ui->profileNameLabel->setText(profileName);
     ui->profileDetailLabel->setText(details.join(QStringLiteral(" · ")));
@@ -540,7 +555,7 @@ void MainWindow::setupTrayIcon()
     trayIcon = new QSystemTrayIcon(this);
     trayIcon->setIcon(
         QIcon(QPixmap(":/resource/icon.png").scaled(512, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
-    trayIcon->setToolTip(QApplication::applicationName());
+    trayIcon->setToolTip(QApplication::applicationDisplayName());
     connect(trayIcon, &QSystemTrayIcon::activated, this, [&](QSystemTrayIcon::ActivationReason reason) {
         switch (reason)
         {
@@ -560,7 +575,7 @@ void MainWindow::setupTrayIcon()
     trayConnectAction = new QAction("连接服务器", this);
     trayProfileMenu = new QMenu("配置选择", this);
     trayShowAction = new QAction("显示主界面", this);
-    trayCloseAction = new QAction("退出 " + QApplication::applicationName(), this);
+    trayCloseAction = new QAction("退出 " + QApplication::applicationDisplayName(), this);
     trayMenu = new QMenu(this);
     trayMenu->addAction(trayConnectAction);
     trayMenu->addSeparator();
@@ -692,6 +707,113 @@ void MainWindow::refreshProfileMenu()
         && !profileService->usesOverrideConfiguration();
     renameProfileAction->setEnabled(currentProfileIsManaged);
     deleteProfileAction->setEnabled(currentProfileIsManaged);
+    refreshProfileList();
+}
+
+void MainWindow::refreshProfileList()
+{
+    ui->profileList->clear();
+    const auto addRow = [this](const QString &id, const QString &label, bool overrideTarget)
+    {
+        auto *item = new QListWidgetItem(ui->profileList);
+        auto *row = new QWidget(ui->profileList);
+        auto *layout = new QHBoxLayout(row);
+        layout->setContentsMargins(2, 1, 2, 1);
+        layout->setSpacing(4);
+        auto *select = new QPushButton(label, row);
+        select->setObjectName("profileSelectButton");
+        select->setCheckable(true);
+        select->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        select->setChecked(overrideTarget
+            ? profileService->usesOverrideConfiguration()
+            : !profileService->usesOverrideConfiguration() && id == currentProfileId);
+        select->setToolTip("切换到 " + label);
+        auto *edit = new QToolButton(row);
+        edit->setObjectName("profileEditButton");
+        edit->setText(QStringLiteral("⚙"));
+        edit->setToolTip("修改 " + label);
+        edit->setAccessibleName("修改 " + label);
+        layout->addWidget(select, 1);
+        layout->addWidget(edit);
+        item->setSizeHint(row->sizeHint());
+        ui->profileList->setItemWidget(item, row);
+        connect(select, &QPushButton::clicked, this, [this, id, overrideTarget]()
+        {
+            requestProfileSelection(id, false, overrideTarget);
+        });
+        connect(edit, &QToolButton::clicked, this, [this, id, overrideTarget]()
+        {
+            requestProfileSelection(id, true, overrideTarget);
+        });
+    };
+    if (profileService->usesOverrideConfiguration())
+        addRow(currentProfileId, QStringLiteral("自定义配置"), true);
+    addRow(QString(), QStringLiteral("默认"), false);
+    for (const QString &id : profileService->profiles())
+        addRow(id, id, false);
+}
+
+void MainWindow::requestProfileSelection(
+    const QString &profileId, bool edit, bool overrideTarget
+)
+{
+    const bool current = overrideTarget
+        ? profileService->usesOverrideConfiguration()
+        : !profileService->usesOverrideConfiguration() && profileId == currentProfileId;
+    if (current && !edit && !profileSwitchPending)
+    {
+        refreshProfileList();
+        return;
+    }
+    if (connectionSession->isActive())
+    {
+        if (!profileSwitchPending)
+            pendingSwitchWasConnected = connectionSession->state() != ConnectionState::Stopping;
+        pendingProfileId = profileId;
+        pendingProfileEdit = edit;
+        pendingProfileOverride = overrideTarget;
+        pendingProfileReconnect = !edit && pendingSwitchWasConnected;
+        if (!profileSwitchPending)
+        {
+            profileSwitchPending = true;
+            connect(connectionSession, &ConnectionSession::finished, this,
+                    [this](ZJU_ERROR)
+                    {
+                        const QString id = pendingProfileId;
+                        const bool edit = pendingProfileEdit;
+                        const bool reconnect = pendingProfileReconnect;
+                        const bool overrideTarget = pendingProfileOverride;
+                        profileSwitchPending = false;
+                        if (!overrideTarget && !switchProfile(id))
+                        {
+                            QMessageBox::warning(this, "切换失败", "无法切换到所选配置。");
+                            return;
+                        }
+                        if (edit)
+                            ui->settingAction->trigger();
+                        else if (reconnect)
+                            QTimer::singleShot(0, this, [this]() { ui->pushButton1->click(); });
+                    }, Qt::SingleShotConnection);
+            connectionSession->stop();
+        }
+        return;
+    }
+    if (!overrideTarget && !switchProfile(profileId))
+    {
+        QMessageBox::warning(this, "切换失败", "无法切换到所选配置。");
+        refreshProfileList();
+        return;
+    }
+    if (edit)
+    {
+        if (settingWindow)
+        {
+            settingWindow->raise();
+            settingWindow->activateWindow();
+        }
+        else
+            ui->settingAction->trigger();
+    }
 }
 
 bool MainWindow::switchProfile(const QString &profileId)
@@ -711,7 +833,9 @@ bool MainWindow::switchProfile(const QString &profileId)
 
     if (settingWindow != nullptr)
     {
-        settingWindow->close();
+        SettingWindow *previousWindow = settingWindow;
+        settingWindow = nullptr;
+        previousWindow->close();
     }
 
     if (!profileService->switchTo(profileId))
@@ -743,44 +867,55 @@ void MainWindow::createProfile()
 
     bool ok = false;
     const QString name = QInputDialog::getText(
-        this,
-        "新建配置",
-        "请输入配置名称：\n（仅支持字母、数字、下划线和连字符）",
-        QLineEdit::Normal,
-        "",
-        &ok
-    );
+        this, "新建 VPN 配置", "请输入配置名称：", QLineEdit::Normal, "", &ok
+    ).trimmed();
     if (!ok)
+        return;
+    const QString normalizedName = profileService->normalizeProfileId(name);
+    if (normalizedName.isEmpty() || normalizedName == QStringLiteral("默认") ||
+        normalizedName.compare("state", Qt::CaseInsensitive) == 0)
     {
+        QMessageBox::warning(this, "名称无效", "请输入有效的配置名称，且不要使用“默认”或“state”。");
         return;
     }
 
-    if (settingWindow != nullptr)
+    QTemporaryDir directory;
+    if (!directory.isValid())
     {
-        settingWindow->close();
+        QMessageBox::critical(this, "创建失败", "无法准备新配置。");
+        return;
     }
+    QSettings initial(directory.filePath("profile.ini"), QSettings::IniFormat);
+    DefaultSettings::reset(initial);
+    initial.setValue("ZJUConnect/ServerAddress", "");
+    ConfigurationGuideDialog guide(this, &initial);
+    if (guide.exec() != QDialog::Accepted)
+        return;
+    if (connectionSession->isActive())
+    {
+        QMessageBox::warning(this, "创建失败", "请先断开 VPN 连接，再新建配置。");
+        return;
+    }
+    if (settingWindow)
+        settingWindow->close();
 
-    const QString newProfileId = profileService->createAndSwitch(name);
+    const QString newProfileId = profileService->createAndSwitch(normalizedName, false);
     if (newProfileId.isEmpty())
     {
         QMessageBox::critical(this, "创建失败", "无法创建新配置。");
         return;
     }
-
     settings = profileService->settings();
     currentProfileId = profileService->currentProfileId();
     authenticationDialogs->setSettings(settings);
-    upgradeSettings();
+    DefaultSettings::reset(*settings);
+    guide.applyTo(*settings);
+    ApplicationPaths::clearClientData(currentProfileId);
     updateVersionInfo();
     resetZjuConnectUi();
-    updateVersionInfo();
     clearLog();
     refreshProfileMenu();
-
-    promptConfigurationGuide(
-        "配置已创建",
-        "配置 \"" + newProfileId + "\" 已创建，是否现在使用配置引导完成设置？"
-    );
+    qInfo().noquote() << "已创建 VPN 配置：" + newProfileId;
 }
 
 void MainWindow::openConfigurationGuide()
@@ -814,6 +949,16 @@ void MainWindow::openConfigurationGuide()
         settings->value("ZJUConnect/LoginDomain").toString();
     const QString oldLoginUrl =
         settings->value("ZJUConnect/LoginURL").toString();
+    const QStringList credentialKeys{
+        "Credential/Username", "Credential/Password", "Credential/TOTPSecret",
+        "Credential/CertFile", "Credential/CertPassword",
+        "ZJUConnect/PhoneCountryCode", "ZJUConnect/PhoneNumber"
+    };
+    QVariantList oldCredentials;
+    for (const QString &key : credentialKeys)
+    {
+        oldCredentials.append(settings->value(key));
+    }
 
     ConfigurationGuideDialog guide(this, settings);
     if (guide.exec() != QDialog::Accepted)
@@ -822,7 +967,7 @@ void MainWindow::openConfigurationGuide()
     }
     guide.applyTo(*settings);
 
-    const bool authenticationSettingsChanged =
+    bool authenticationSettingsChanged =
         oldServerAddress != settings->value("ZJUConnect/ServerAddress").toString()
         || oldServerPort != settings->value("ZJUConnect/ServerPort").toInt()
         || oldProtocol != settings->value("ZJUConnect/Protocol").toString()
@@ -831,6 +976,10 @@ void MainWindow::openConfigurationGuide()
             != settings->value("ZJUConnect/EasyConnectAuthType").toString()
         || oldLoginDomain != settings->value("ZJUConnect/LoginDomain").toString()
         || oldLoginUrl != settings->value("ZJUConnect/LoginURL").toString();
+    for (qsizetype i = 0; i < credentialKeys.size(); ++i)
+    {
+        authenticationSettingsChanged |= oldCredentials.at(i) != settings->value(credentialKeys.at(i));
+    }
     if (authenticationSettingsChanged)
     {
         ApplicationPaths::clearClientData(currentProfileId);
@@ -844,7 +993,7 @@ void MainWindow::openConfigurationGuide()
 void MainWindow::promptFirstLaunchGuide()
 {
     promptConfigurationGuide(
-        "欢迎使用 EZ4Connect",
+        "欢迎使用 EZ4Connect Pro",
         "检测到这是首次启动，是否现在配置 VPN 服务器？"
     );
 }
@@ -878,16 +1027,17 @@ void MainWindow::promptConfigurationGuide(
 void MainWindow::renameCurrentProfile()
 {
     bool ok = false;
-    QString name = QInputDialog::getText(this, "重命名配置", "请输入新配置名称：\n（仅支持字母、数字、下划线）", QLineEdit::Normal, currentProfileId, &ok);
+    QString name = QInputDialog::getText(this, "重命名配置", "请输入新配置名称：", QLineEdit::Normal, currentProfileId, &ok);
     if (!ok)
     {
         return;
     }
 
     const QString normalizedName = profileService->normalizeProfileId(name);
-    if (normalizedName.isEmpty())
+    if (normalizedName.isEmpty() || normalizedName == QStringLiteral("默认") ||
+        normalizedName.compare("state", Qt::CaseInsensitive) == 0)
     {
-        QMessageBox::warning(this, "重命名失败", "配置名称不能为空。");
+        QMessageBox::warning(this, "重命名失败", "请输入有效的配置名称，且不要使用“默认”或“state”。");
         return;
     }
     if (normalizedName == currentProfileId)
