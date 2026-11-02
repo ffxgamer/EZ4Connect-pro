@@ -1,0 +1,10 @@
+{
+  "version": "v0.0.8",
+  "assets": {
+    "macos-arm64": {
+      "url": "https://github.com/ffxgamer/EZ4Connect-pro/releases/download/v0.0.8/EZ4Connect-pro-v0.0.8-macos-arm64.dmg",
+      "sha256": "2e2e4ed6ccbde8c8c561663dc86e0066147eed62ff8a9e435792e631c9408e96",
+      "size": 140235995
+    }
+  }
+}
