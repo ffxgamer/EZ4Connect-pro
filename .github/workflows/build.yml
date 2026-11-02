@@ -30,7 +30,7 @@ jobs:
             exit 1
           fi
           prerelease=false
-          if [[ "$VERSION" == *-* ]]; then prerelease=true; fi
+          if [[ "$VERSION" == *-* || "$VERSION" == v0.0.7 ]]; then prerelease=true; fi
           {
             echo "version=$VERSION"
             echo "prerelease=$prerelease"
@@ -67,6 +67,7 @@ jobs:
 
   build-windows-x64:
     needs: metadata
+    if: needs.metadata.outputs.version != 'v0.0.7'
     runs-on: windows-latest
     env:
       ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-windows-x64
@@ -109,6 +110,7 @@ jobs:
 
   build-windows-arm64:
     needs: metadata
+    if: needs.metadata.outputs.version != 'v0.0.7'
     runs-on: windows-11-arm
     env:
       ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-windows-arm64
@@ -152,6 +154,7 @@ jobs:
 
   build-macos-x64:
     needs: metadata
+    if: needs.metadata.outputs.version != 'v0.0.7'
     runs-on: macos-15-intel
     env:
       ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-macos-x64
@@ -388,6 +391,7 @@ jobs:
           path: ${{ env.ARCHIVE_NAME }}.dmg
   build-linux-x64:
     needs: metadata
+    if: needs.metadata.outputs.version != 'v0.0.7'
     runs-on: ubuntu-22.04
     env:
       ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-linux-x64
@@ -428,6 +432,7 @@ jobs:
 
   build-linux-arm64:
     needs: metadata
+    if: needs.metadata.outputs.version != 'v0.0.7'
     runs-on: ubuntu-24.04-arm
     env:
       ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-linux-arm64
@@ -481,6 +486,15 @@ jobs:
       - build-macos-arm64
       - build-linux-x64
       - build-linux-arm64
+    if: >-
+      ${{ always() && needs.metadata.result == 'success' && needs.unit-tests.result == 'success'
+          && needs.build-macos-arm64.result == 'success'
+          && (needs.metadata.outputs.version == 'v0.0.7'
+              || (needs.build-windows-x64.result == 'success'
+                  && needs.build-windows-arm64.result == 'success'
+                  && needs.build-macos-x64.result == 'success'
+                  && needs.build-linux-x64.result == 'success'
+                  && needs.build-linux-arm64.result == 'success')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -500,14 +514,16 @@ jobs:
           PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
         run: |
           set -euo pipefail
-          assets=(
-            "release-assets/$PREFIX-windows-x64.zip"
-            "release-assets/$PREFIX-windows-arm64.zip"
-            "release-assets/$PREFIX-macos-x64.dmg"
-            "release-assets/$PREFIX-macos-arm64.dmg"
-            "release-assets/$PREFIX-linux-x64.AppImage"
-            "release-assets/$PREFIX-linux-arm64.AppImage"
-          )
+          assets=("release-assets/$PREFIX-macos-arm64.dmg")
+          if [[ "$TAG" != v0.0.7 ]]; then
+            assets+=(
+              "release-assets/$PREFIX-windows-x64.zip"
+              "release-assets/$PREFIX-windows-arm64.zip"
+              "release-assets/$PREFIX-macos-x64.dmg"
+              "release-assets/$PREFIX-linux-x64.AppImage"
+              "release-assets/$PREFIX-linux-arm64.AppImage"
+            )
+          fi
           for asset in "${assets[@]}"; do
             test -s "$asset" || { echo "Missing release asset: $asset" >&2; exit 1; }
           done

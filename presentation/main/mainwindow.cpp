@@ -156,6 +156,7 @@ MainWindow::MainWindow(
     ui->applicationNameLabel->setText(QApplication::applicationDisplayName());
     setWindowTitle(QApplication::applicationDisplayName());
     connect(ui->newProfileButton, &QToolButton::clicked, this, &MainWindow::createProfile);
+    connect(ui->deleteProfileButton, &QToolButton::clicked, this, &MainWindow::deleteCurrentProfile);
 
     updateVersionInfo();
     updateConnectionState(connectionSession->state());
@@ -718,6 +719,7 @@ void MainWindow::refreshProfileMenu()
         && !profileService->usesOverrideConfiguration();
     renameProfileAction->setEnabled(currentProfileIsManaged);
     deleteProfileAction->setEnabled(currentProfileIsManaged);
+    ui->deleteProfileButton->setEnabled(currentProfileIsManaged);
     refreshProfileList();
 }
 
@@ -1053,29 +1055,38 @@ void MainWindow::renameCurrentProfile()
 
 void MainWindow::deleteCurrentProfile()
 {
-    if (currentProfileId.isEmpty())
+    if (currentProfileId.isEmpty() || profileService->usesOverrideConfiguration())
     {
-        QMessageBox::warning(this, "删除失败", "默认配置不可删除。");
+        QMessageBox::warning(this, "删除失败", "默认配置或外部指定的配置不可删除。");
         return;
     }
 
-    QMessageBox messageBox(this);
-    messageBox.setWindowTitle("删除配置");
-    messageBox.setText("确认删除当前配置 \"" + currentProfileId + "\" 吗？");
-    messageBox.addButton(QMessageBox::Yes)->setText("是");
-    messageBox.addButton(QMessageBox::No)->setText("否");
-    messageBox.setDefaultButton(QMessageBox::No);
-    if (messageBox.exec() != QMessageBox::Yes)
-    {
-        return;
-    }
-
-    const QString removedProfileId = currentProfileId;
     if (connectionSession != nullptr && connectionSession->isActive())
     {
         QMessageBox::warning(this, "删除失败", "请先断开 VPN 连接，再删除配置。");
         return;
     }
+
+    QMessageBox messageBox(this);
+    messageBox.setWindowTitle("删除配置");
+    messageBox.setIcon(QMessageBox::Warning);
+    messageBox.setText("确定删除配置“" + currentProfileId + "”吗？");
+    messageBox.setInformativeText("配置及其保存的登录信息将被删除，之后会切换到默认配置。此操作无法撤销。");
+    messageBox.addButton(QMessageBox::Yes)->setText("删除配置");
+    messageBox.addButton(QMessageBox::No)->setText("取消");
+    messageBox.setDefaultButton(QMessageBox::No);
+    messageBox.setEscapeButton(QMessageBox::No);
+    if (messageBox.exec() != QMessageBox::Yes)
+    {
+        return;
+    }
+
+    if (connectionSession != nullptr && connectionSession->isActive())
+    {
+        QMessageBox::warning(this, "删除失败", "请先断开 VPN 连接，再删除配置。");
+        return;
+    }
+    const QString removedProfileId = currentProfileId;
     if (settingWindow != nullptr)
     {
         settingWindow->close();

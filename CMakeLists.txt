@@ -267,6 +267,17 @@ if(BUILD_TESTING)
     target_link_libraries(profilemanager_test Qt::Core)
     add_test(NAME profilemanager_test COMMAND profilemanager_test)
 
+    add_executable(mainwindowlayout_test
+        tests/mainwindowlayout_test.cpp
+        presentation/main/mainwindow.ui
+    )
+    set_target_properties(mainwindowlayout_test PROPERTIES
+        AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/presentation/main")
+    target_link_libraries(mainwindowlayout_test Qt::Core Qt::Gui Qt::Widgets)
+    add_test(NAME mainwindowlayout_test COMMAND mainwindowlayout_test)
+    set_tests_properties(mainwindowlayout_test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     add_executable(configurationguidedialog_test
         tests/configurationguidedialog_test.cpp
         presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp
