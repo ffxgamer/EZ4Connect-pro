@@ -70,6 +70,7 @@ set(SOURCE_FILES
     presentation/dialogs/ssologinwebview/ssologinwebview.cpp
     presentation/dialogs/authinfowindow/authinfowindow.cpp
     presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp
+    presentation/dialogs/deleteprofiledialog/deleteprofiledialog.cpp
     presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp
     presentation/dialogs/graphcaptchawindow/captchacanvas.cpp
     infrastructure/settings/profilemanager.cpp
@@ -276,6 +277,16 @@ if(BUILD_TESTING)
     target_link_libraries(mainwindowlayout_test Qt::Core Qt::Gui Qt::Widgets)
     add_test(NAME mainwindowlayout_test COMMAND mainwindowlayout_test)
     set_tests_properties(mainwindowlayout_test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    add_executable(deleteprofiledialog_test
+        tests/deleteprofiledialog_test.cpp
+        presentation/dialogs/deleteprofiledialog/deleteprofiledialog.cpp
+    )
+    target_include_directories(deleteprofiledialog_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(deleteprofiledialog_test Qt::Core Qt::Gui Qt::Widgets)
+    add_test(NAME deleteprofiledialog_test COMMAND deleteprofiledialog_test)
+    set_tests_properties(deleteprofiledialog_test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     add_executable(configurationguidedialog_test

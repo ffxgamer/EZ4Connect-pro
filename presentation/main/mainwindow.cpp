@@ -33,6 +33,7 @@
 #include "infrastructure/update/updatechecker.h"
 #include "presentation/coordinators/connectionuicontroller.h"
 #include "presentation/dialogs/configurationguidedialog/configurationguidedialog.h"
+#include "presentation/dialogs/deleteprofiledialog/deleteprofiledialog.h"
 #include "presentation/presentationhelpers.h"
 #include "ui_mainwindow.h"
 
@@ -1067,16 +1068,9 @@ void MainWindow::deleteCurrentProfile()
         return;
     }
 
-    QMessageBox messageBox(this);
-    messageBox.setWindowTitle("删除配置");
-    messageBox.setIcon(QMessageBox::Warning);
-    messageBox.setText("确定删除配置“" + currentProfileId + "”吗？");
-    messageBox.setInformativeText("配置及其保存的登录信息将被删除，之后会切换到默认配置。此操作无法撤销。");
-    messageBox.addButton(QMessageBox::Yes)->setText("删除配置");
-    messageBox.addButton(QMessageBox::No)->setText("取消");
-    messageBox.setDefaultButton(QMessageBox::No);
-    messageBox.setEscapeButton(QMessageBox::No);
-    if (messageBox.exec() != QMessageBox::Yes)
+    const QString removedProfileId = currentProfileId;
+    DeleteProfileDialog dialog(removedProfileId, this);
+    if (dialog.exec() != QDialog::Accepted)
     {
         return;
     }
@@ -1086,7 +1080,11 @@ void MainWindow::deleteCurrentProfile()
         QMessageBox::warning(this, "删除失败", "请先断开 VPN 连接，再删除配置。");
         return;
     }
-    const QString removedProfileId = currentProfileId;
+    if (currentProfileId != removedProfileId || profileService->usesOverrideConfiguration())
+    {
+        QMessageBox::warning(this, "删除失败", "当前配置已发生变化，请重新选择后再删除。");
+        return;
+    }
     if (settingWindow != nullptr)
     {
         settingWindow->close();
