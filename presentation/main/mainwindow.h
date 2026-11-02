@@ -111,7 +111,7 @@ private:
     ConnectionSession *connectionSession = nullptr;
     SystemProxySession *systemProxySession = nullptr;
     AuthDialogCoordinator *authenticationDialogs = nullptr;
-    ConnectionUiController *connectionUiController;
+    ConnectionUiController *connectionUiController = nullptr;
     MainWindowCoordinator *coordinator;
     ApplicationLogger *applicationLogger;
     ApplicationLogFile *applicationLogFile;
@@ -119,11 +119,6 @@ private:
     QSettings *settings;
     ProfileService *profileService;
     QString currentProfileId;
-    QString pendingProfileId;
-    bool profileSwitchPending = false;
-    bool pendingProfileEdit = false;
-    bool pendingProfileOverride = false;
-
     QPointer<SettingWindow> settingWindow;
 
 };

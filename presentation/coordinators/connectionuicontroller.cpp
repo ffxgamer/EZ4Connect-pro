@@ -7,6 +7,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSettings>
+#include <QTimer>
 #include <QWidget>
 
 #include <utility>
@@ -130,8 +131,9 @@ ConnectionUiController::ConnectionUiController(
                     QSystemTrayIcon::MessageIcon::Warning
                 );
             }
-            this->connectButton->setText("连接服务器");
-            this->trayConnectAction->setText("连接服务器");
+            this->authenticationDialogs->setSettings(settings());
+            activeSettings.reset();
+            profileSelectionChanged();
             this->proxyButton->hide();
             if (this->connectionSession->state() != ConnectionState::Interrupted)
             {
@@ -159,10 +161,91 @@ QSettings *ConnectionUiController::settings() const
     return settingsProvider();
 }
 
+QSettings *ConnectionUiController::connectionSettings() const
+{
+    return activeSettings ? activeSettings.get() : settings();
+}
+
+bool ConnectionUiController::selectedProfileIsConnected() const
+{
+    return connectionSession->isActive() && activeSettings
+        && activeSettings->fileName() == settings()->fileName();
+}
+
+QString ConnectionUiController::connectedProfileName() const
+{
+    return activeProfileId.isEmpty() ? QStringLiteral("默认") : activeProfileId;
+}
+
+void ConnectionUiController::profileSelectionChanged()
+{
+    authenticationDialogs->setSettings(connectionSettings());
+    const QString label = selectedProfileIsConnected() ? "断开服务器" : "连接服务器";
+    connectButton->setText(label);
+    trayConnectAction->setText(label);
+    connectButton->setEnabled(!switchingConnection);
+    trayConnectAction->setEnabled(!switchingConnection);
+}
+
+void ConnectionUiController::finishProfileSwitch(const QString &requestedPath)
+{
+    if (systemProxySession->isBusy())
+    {
+        connect(systemProxySession, &SystemProxySession::busyChanged, this,
+                [this, requestedPath](bool busy)
+                {
+                    if (!busy)
+                        QTimer::singleShot(0, this, [this, requestedPath]()
+                        {
+                            finishProfileSwitch(requestedPath);
+                        });
+                }, Qt::SingleShotConnection);
+        return;
+    }
+    if (systemProxySession->isEnabled())
+    {
+        if (!proxyClearAttempted)
+        {
+            proxyClearAttempted = true;
+            if (systemProxySession->disable())
+            {
+                finishProfileSwitch(requestedPath);
+                return;
+            }
+        }
+        switchingConnection = false;
+        profileSelectionChanged();
+        QMessageBox::warning(parentWidget, "切换失败", "无法清除原连接的系统代理，请检查后重试。");
+        return;
+    }
+    switchingConnection = false;
+    profileSelectionChanged();
+    if (settings()->fileName() != requestedPath)
+        return;
+    handleConnectClicked();
+}
+
 void ConnectionUiController::handleConnectClicked()
 {
+    if (switchingConnection)
+        return;
     if (connectionSession->isActive())
     {
+        if (!selectedProfileIsConnected())
+        {
+            const QString requestedPath = settings()->fileName();
+            switchingConnection = true;
+            proxyClearAttempted = false;
+            profileSelectionChanged();
+            connect(connectionSession, &ConnectionSession::finished, this,
+                    [this, requestedPath](ZJU_ERROR)
+                    {
+                        QTimer::singleShot(0, this, [this, requestedPath]()
+                        {
+                            finishProfileSwitch(requestedPath);
+                        });
+                    }, Qt::SingleShotConnection);
+        }
         connectionSession->stop();
         return;
     }
@@ -265,26 +348,27 @@ void ConnectionUiController::handleProxyClicked()
         return;
     }
 
-    const int httpPort = settings()->value("ZJUConnect/HTTPPort").toInt();
-    const int socksPort = settings()->value("ZJUConnect/SOCKS5Port").toInt();
+    const int httpPort = connectionSettings()->value("ZJUConnect/HTTPPort").toInt();
+    const int socksPort = connectionSettings()->value("ZJUConnect/SOCKS5Port").toInt();
     const SystemProxyConfig proxyConfig{
         httpPort,
         socksPort,
-        settings()->value("Common/SystemProxyBypass").toString()
+        connectionSettings()->value("Common/SystemProxyBypass").toString()
     };
+    const quint64 generation = connectionGeneration;
     connect(
         systemProxySession,
         &SystemProxySession::conflictCheckFinished,
         this,
-        [this, proxyConfig, httpPort, socksPort](bool conflict)
+        [this, proxyConfig, httpPort, socksPort, generation](bool conflict)
         {
-            if (!connectionSession->isActive())
+            if (!connectionSession->isActive() || generation != connectionGeneration)
             {
                 return;
             }
 
             if (conflict &&
-                !settings()->value(
+                !connectionSettings()->value(
                     "Common/SuppressProxyOverrideWarning",
                     false
                 ).toBool())
@@ -305,11 +389,11 @@ void ConnectionUiController::handleProxyClicked()
                 }
                 if (dontShowCheckBox->isChecked())
                 {
-                    settings()->setValue(
+                    connectionSettings()->setValue(
                         "Common/SuppressProxyOverrideWarning",
                         true
                     );
-                    settings()->sync();
+                    connectionSettings()->sync();
                 }
             }
             else if (conflict)
@@ -348,14 +432,19 @@ void ConnectionUiController::startConnection(
         settings()->value("Common/AutoReconnect", false).toBool(),
         settings()->value("Common/ReconnectTime", 1).toInt() * 1000
     };
+    activeSettings = std::make_unique<QSettings>(settings()->fileName(), QSettings::IniFormat);
+    activeProfileId = profileIdProvider();
+    ++connectionGeneration;
+    authenticationDialogs->setSettings(activeSettings.get());
     if (!connectionSession->start(profile, reconnectPolicy)
         || !connectionSession->isActive())
     {
+        authenticationDialogs->setSettings(settings());
+        activeSettings.reset();
         return;
     }
 
-    connectButton->setText("断开服务器");
-    trayConnectAction->setText("断开服务器");
+    profileSelectionChanged();
     proxyButton->show();
 
     if (settings()->value("Common/AutoSetProxy", false).toBool())

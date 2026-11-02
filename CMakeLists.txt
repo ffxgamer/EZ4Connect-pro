@@ -135,6 +135,30 @@ target_link_libraries(${PROJECT_NAME}
 include(CTest)
 
 if(BUILD_TESTING)
+    add_executable(connectionuicontroller_test
+        tests/connectionuicontroller_test.cpp
+        presentation/coordinators/connectionuicontroller.cpp
+        presentation/coordinators/authdialogcoordinator.cpp
+        presentation/dialogs/loginwindow/loginwindow.cpp
+        presentation/dialogs/sudowindow/sudowindow.cpp
+        presentation/dialogs/ssologinwebview/ssologinwebview.cpp
+        presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp
+        presentation/dialogs/graphcaptchawindow/captchacanvas.cpp
+        presentation/presentationhelpers.cpp
+        application/applicationlogger.cpp
+        application/coreprocess.h
+        application/connectionsession.cpp
+        application/systemproxysession.cpp
+        core/connectionsessionstate.cpp
+        infrastructure/coreprocess/coreexecutable.cpp
+        infrastructure/platform/privileges.cpp
+        infrastructure/settings/settingsprofileloader.cpp
+    )
+    target_include_directories(connectionuicontroller_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(connectionuicontroller_test Qt::Core Qt::Concurrent Qt::Gui Qt::Widgets Qt::Network Qt::WebEngineWidgets ${PLATFORM_LIBS})
+    add_test(NAME connectionuicontroller_test COMMAND connectionuicontroller_test)
+    set_tests_properties(connectionuicontroller_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     add_executable(applicationlogger_test
         tests/applicationlogger_test.cpp
         application/applicationlogger.cpp

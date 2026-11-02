@@ -503,6 +503,14 @@ void MainWindow::updateConnectionState(ConnectionState state)
         break;
     }
 
+    if (connectionSession->isActive() && connectionUiController != nullptr
+        && !connectionUiController->selectedProfileIsConnected())
+    {
+        detail = "当前连接：" + connectionUiController->connectedProfileName()
+            + "；已选择：" + (currentProfileId.isEmpty() ? "默认" : currentProfileId)
+            + "。点击连接服务器后切换。";
+    }
+
     ui->statusTitleLabel->setText(title);
     ui->statusDetailLabel->setText(detail);
 
@@ -512,7 +520,10 @@ void MainWindow::updateConnectionState(ConnectionState state)
     };
     for (QWidget *widget : styledWidgets)
     {
-        widget->setProperty("connectionState", propertyValue);
+        const bool selectedDifferent = widget == ui->pushButton1
+            && connectionSession->isActive() && connectionUiController != nullptr
+            && !connectionUiController->selectedProfileIsConnected();
+        widget->setProperty("connectionState", selectedDifferent ? "disconnected" : propertyValue);
         widget->style()->unpolish(widget);
         widget->style()->polish(widget);
         widget->update();
@@ -658,7 +669,7 @@ void MainWindow::refreshProfileMenu()
     switchGroup->addAction(action);
     connect(action, &QAction::triggered, this, [this]()
     {
-        switchProfile("");
+        requestProfileSelection("");
     });
     if (trayProfileMenu != nullptr)
     {
@@ -668,7 +679,7 @@ void MainWindow::refreshProfileMenu()
         traySwitchGroup->addAction(trayAction);
         connect(trayAction, &QAction::triggered, this, [this]()
         {
-            switchProfile("");
+            requestProfileSelection("");
         });
     }
 
@@ -683,7 +694,7 @@ void MainWindow::refreshProfileMenu()
         switchGroup->addAction(action);
         connect(action, &QAction::triggered, this, [this, profileId]()
         {
-            switchProfile(profileId);
+            requestProfileSelection(profileId);
         });
 
         if (trayProfileMenu != nullptr)
@@ -697,7 +708,7 @@ void MainWindow::refreshProfileMenu()
             traySwitchGroup->addAction(trayAction);
             connect(trayAction, &QAction::triggered, this, [this, profileId]()
             {
-                switchProfile(profileId);
+                requestProfileSelection(profileId);
             });
         }
     }
@@ -760,36 +771,9 @@ void MainWindow::requestProfileSelection(
     const bool current = overrideTarget
         ? profileService->usesOverrideConfiguration()
         : !profileService->usesOverrideConfiguration() && profileId == currentProfileId;
-    if (current && !edit && !profileSwitchPending)
+    if (current && !edit)
     {
         refreshProfileList();
-        return;
-    }
-    if (connectionSession->isActive())
-    {
-        pendingProfileId = profileId;
-        pendingProfileEdit = edit;
-        pendingProfileOverride = overrideTarget;
-        if (!profileSwitchPending)
-        {
-            profileSwitchPending = true;
-            connect(connectionSession, &ConnectionSession::finished, this,
-                    [this](ZJU_ERROR)
-                    {
-                        const QString id = pendingProfileId;
-                        const bool edit = pendingProfileEdit;
-                        const bool overrideTarget = pendingProfileOverride;
-                        profileSwitchPending = false;
-                        if (!overrideTarget && !switchProfile(id))
-                        {
-                            QMessageBox::warning(this, "切换失败", "无法切换到所选配置。");
-                            return;
-                        }
-                        if (edit)
-                            ui->settingAction->trigger();
-                    }, Qt::SingleShotConnection);
-            connectionSession->stop();
-        }
         return;
     }
     if (!overrideTarget && !switchProfile(profileId))
@@ -818,13 +802,6 @@ bool MainWindow::switchProfile(const QString &profileId)
         return true;
     }
 
-    if (connectionSession != nullptr && connectionSession->isActive())
-    {
-        QMessageBox::warning(this, "切换失败", "请先断开 VPN 连接，再切换配置。");
-        refreshProfileMenu();
-        return false;
-    }
-
     if (settingWindow != nullptr)
     {
         SettingWindow *previousWindow = settingWindow;
@@ -838,13 +815,24 @@ bool MainWindow::switchProfile(const QString &profileId)
         return false;
     }
     settings = profileService->settings();
-    authenticationDialogs->setSettings(settings);
+    if (connectionUiController != nullptr)
+        connectionUiController->profileSelectionChanged();
+    else
+        authenticationDialogs->setSettings(settings);
     currentProfileId = profileService->currentProfileId();
 
     upgradeSettings();
     updateVersionInfo();
-    resetZjuConnectUi();
-    clearLog();
+    if (!connectionSession->isActive())
+    {
+        resetZjuConnectUi();
+        clearLog();
+    }
+    else
+    {
+        updateConnectionState(connectionSession->state());
+        updateProfileSummary();
+    }
     refreshProfileMenu();
 
     qInfo().noquote() << "已切换到配置：" + currentProfileId;
@@ -1190,7 +1178,7 @@ void MainWindow::gracefullyQuit()
     {
         connect(connectionSession, &ConnectionSession::finished, qApp,
                 [](ZJU_ERROR) { QApplication::quit(); });
-        ui->pushButton1->click();
+        connectionSession->stop();
     }
     else
     {
