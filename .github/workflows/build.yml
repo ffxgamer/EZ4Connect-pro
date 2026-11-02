@@ -2,23 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ master, dev ]
     tags: [ 'v*' ]
-  pull_request:
-  workflow_dispatch:
-    inputs:
-      nightly:
-        type: boolean
-        default: true
-        description: "Nightly Build"
-      zju_connect_nightly:
-        type: boolean
-        default: false
-        description: "Use nightly zju-connect"
-      version:
-        type: string
-        default: ''
-        description: "Version (e.g. v0.0.0)"
 
 permissions:
   contents: read
@@ -32,45 +16,23 @@ jobs:
   metadata:
     runs-on: ubuntu-latest
     outputs:
-      release: ${{ steps.version.outputs.release }}
       version: ${{ steps.version.outputs.version }}
-      artifact_version: ${{ steps.version.outputs.artifact_version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - name: Validate version
         id: version
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
-          MANUAL_NIGHTLY: ${{ inputs.nightly }}
-          MANUAL_VERSION: ${{ inputs.version }}
+          VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          release=false
-          version=''
-          artifact_version=nightly
-          if [[ "$EVENT_NAME" == push && "$REF_TYPE" == tag ]]; then
-            release=true
-            version="$REF_NAME"
-            artifact_version="$version"
-          elif [[ "$EVENT_NAME" == workflow_dispatch && "$MANUAL_NIGHTLY" == false ]]; then
-            version="$MANUAL_VERSION"
-          fi
-          if [[ -n "$version" ]] && [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "Invalid version: use v1.2.3 or v1.2.3-rc.1" >&2
             exit 1
           fi
-          if [[ "$EVENT_NAME" == workflow_dispatch && "$MANUAL_NIGHTLY" == false && -z "$version" ]]; then
-            echo "A version is required for a non-nightly manual build." >&2
-            exit 1
-          fi
           prerelease=false
-          if [[ "$version" == *-* ]]; then prerelease=true; fi
+          if [[ "$VERSION" == *-* ]]; then prerelease=true; fi
           {
-            echo "release=$release"
-            echo "version=$version"
-            echo "artifact_version=$artifact_version"
+            echo "version=$VERSION"
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
 
@@ -107,7 +69,7 @@ jobs:
     needs: metadata
     runs-on: windows-latest
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-windows-x64
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-windows-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -124,16 +86,10 @@ jobs:
 
       - name: Configure
         env:
-          NIGHTLY_BUILD: ${{ needs.metadata.outputs.release != 'true' && (github.event_name != 'workflow_dispatch' || inputs.nightly) }}
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
-          mkdir build
-          if ( [bool]::Parse("${{ env.NIGHTLY_BUILD }}") ) {
-            cmake -DNIGHTLY_BUILD=ON -DQT_DEBUG_FIND_PACKAGE=ON -DGIT_HASH="$(git rev-parse --short=7 HEAD)" -DCMAKE_BUILD_TYPE=Release -S . -B build
-          } else {
-            $VER = "${{ env.RELEASE_VERSION }}".substring(1)
-            cmake -DNIGHTLY_BUILD=OFF -DREL_VER="$VER" -DCMAKE_BUILD_TYPE=Release -S . -B build
-          }
+          $VER = $env:RELEASE_VERSION.Substring(1)
+          cmake -DNIGHTLY_BUILD=OFF -DREL_VER="$VER" -DCMAKE_BUILD_TYPE=Release -S . -B build
 
       - name: Build
         run: |
@@ -142,7 +98,7 @@ jobs:
       - name: Download and copy files
         shell: pwsh
         run: |
-          .\scripts\deploy-windows.ps1 -TargetName "${{ env.TARGET_NAME }}" -DisplayName "${{ env.DISPLAY_NAME }}" -BuildDir "build" -Architecture "amd64" -Nightly ${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}
+          .\scripts\deploy-windows.ps1 -TargetName "${{ env.TARGET_NAME }}" -DisplayName "${{ env.DISPLAY_NAME }}" -BuildDir "build" -Architecture "amd64" -Nightly false
           Compress-Archive -Path "${{ env.DISPLAY_NAME }}" -DestinationPath ${{ env.ARCHIVE_NAME }}.zip
 
       - name: Upload artifact
@@ -155,7 +111,7 @@ jobs:
     needs: metadata
     runs-on: windows-11-arm
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-windows-arm64
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-windows-arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -173,16 +129,10 @@ jobs:
 
       - name: Configure
         env:
-          NIGHTLY_BUILD: ${{ needs.metadata.outputs.release != 'true' && (github.event_name != 'workflow_dispatch' || inputs.nightly) }}
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
-          mkdir build
-          if ( [bool]::Parse("${{ env.NIGHTLY_BUILD }}") ) {
-            cmake -DNIGHTLY_BUILD=ON -DQT_DEBUG_FIND_PACKAGE=ON -DGIT_HASH="$(git rev-parse --short=7 HEAD)" -DCMAKE_BUILD_TYPE=Release -S . -B build
-          } else {
-            $VER = "${{ env.RELEASE_VERSION }}".substring(1)
-            cmake -DNIGHTLY_BUILD=OFF -DREL_VER="$VER" -DCMAKE_BUILD_TYPE=Release -S . -B build
-          }
+          $VER = $env:RELEASE_VERSION.Substring(1)
+          cmake -DNIGHTLY_BUILD=OFF -DREL_VER="$VER" -DCMAKE_BUILD_TYPE=Release -S . -B build
 
       - name: Build
         run: |
@@ -191,7 +141,7 @@ jobs:
       - name: Download and copy files
         shell: pwsh
         run: |
-          .\scripts\deploy-windows.ps1 -TargetName "${{ env.TARGET_NAME }}" -DisplayName "${{ env.DISPLAY_NAME }}" -BuildDir "build" -Architecture "arm64" -Nightly ${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}
+          .\scripts\deploy-windows.ps1 -TargetName "${{ env.TARGET_NAME }}" -DisplayName "${{ env.DISPLAY_NAME }}" -BuildDir "build" -Architecture "arm64" -Nightly false
           Compress-Archive -Path "${{ env.DISPLAY_NAME }}" -DestinationPath ${{ env.ARCHIVE_NAME }}.zip
 
       - name: Upload artifact
@@ -202,9 +152,9 @@ jobs:
 
   build-macos-x64:
     needs: metadata
-    runs-on: macos-15
+    runs-on: macos-15-intel
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-macos-x64
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-macos-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -221,16 +171,9 @@ jobs:
 
       - name: Configure
         env:
-          NIGHTLY_BUILD: ${{ needs.metadata.outputs.release != 'true' && (github.event_name != 'workflow_dispatch' || inputs.nightly) }}
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
-          mkdir build
-          if ${{ env.NIGHTLY_BUILD }} ; then
-            cmake -DNIGHTLY_BUILD=ON -DQT_DEBUG_FIND_PACKAGE=ON -DGIT_HASH=$(git rev-parse --short=7 HEAD) -DCMAKE_OSX_ARCHITECTURES="x86_64" -S . -B build
-          else
-            VER=${{ env.RELEASE_VERSION }}
-            cmake -DNIGHTLY_BUILD=OFF -DREL_VER=${VER#v} -DCMAKE_OSX_ARCHITECTURES="x86_64" -S . -B build
-          fi
+          cmake -DNIGHTLY_BUILD=OFF -DREL_VER="${RELEASE_VERSION#v}" -DCMAKE_OSX_ARCHITECTURES="x86_64" -S . -B build
 
       - name: Build
         run: |
@@ -238,11 +181,10 @@ jobs:
 
       - name: Download and copy files
         run: |
-          ./scripts/deploy-macos.sh "${{ env.TARGET_NAME }}" "build" "x86_64" "${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}"
+          ./scripts/deploy-macos.sh "${{ env.TARGET_NAME }}" "build" "x86_64" "false"
 
       - name: Check macOS signing configuration
         id: signing
-        if: needs.metadata.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -291,7 +233,6 @@ jobs:
           ./scripts/macos-sign-app.sh "./${{ env.TARGET_NAME }}.app"
 
       - name: Package dmg file
-        if: needs.metadata.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           brew install create-dmg
           mkdir dmg-build
@@ -314,29 +255,15 @@ jobs:
           ./scripts/macos-notarize-dmg.sh "${{ env.ARCHIVE_NAME }}.dmg"
 
       - name: Upload artifact (dmg)
-        if: needs.metadata.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARCHIVE_NAME }}
           path: ${{ env.ARCHIVE_NAME }}.dmg
-
-      - name: Package zip file
-        if: needs.metadata.outputs.release != 'true' && github.event_name != 'workflow_dispatch'
-        run: |
-          tar -cvf ${{ env.ARCHIVE_NAME }}.tar ${{ env.TARGET_NAME }}.app
-
-      - name: Upload artifact (tar)
-        uses: actions/upload-artifact@v4
-        if: needs.metadata.outputs.release != 'true' && github.event_name != 'workflow_dispatch'
-        with:
-          name: ${{ env.ARCHIVE_NAME }}
-          path: ${{ env.ARCHIVE_NAME }}.tar
-
   build-macos-arm64:
     needs: metadata
     runs-on: macos-15
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-macos-arm64
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-macos-arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -353,16 +280,9 @@ jobs:
 
       - name: Configure
         env:
-          NIGHTLY_BUILD: ${{ needs.metadata.outputs.release != 'true' && (github.event_name != 'workflow_dispatch' || inputs.nightly) }}
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
-          mkdir build
-          if ${{ env.NIGHTLY_BUILD }} ; then
-            cmake -DNIGHTLY_BUILD=ON -DQT_DEBUG_FIND_PACKAGE=ON -DGIT_HASH=$(git rev-parse --short=7 HEAD) -DCMAKE_OSX_ARCHITECTURES="arm64" -S . -B build
-          else
-            VER=${{ env.RELEASE_VERSION }}
-            cmake -DNIGHTLY_BUILD=OFF -DREL_VER=${VER#v} -DCMAKE_OSX_ARCHITECTURES="arm64" -S . -B build
-          fi
+          cmake -DNIGHTLY_BUILD=OFF -DREL_VER="${RELEASE_VERSION#v}" -DCMAKE_OSX_ARCHITECTURES="arm64" -S . -B build
 
       - name: Build
         run: |
@@ -370,11 +290,10 @@ jobs:
 
       - name: Download and copy files
         run: |
-          ./scripts/deploy-macos.sh "${{ env.TARGET_NAME }}" "build" "arm64" "${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}"
+          ./scripts/deploy-macos.sh "${{ env.TARGET_NAME }}" "build" "arm64" "false"
 
       - name: Check macOS signing configuration
         id: signing
-        if: needs.metadata.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -423,7 +342,6 @@ jobs:
           ./scripts/macos-sign-app.sh "./${{ env.TARGET_NAME }}.app"
 
       - name: Package dmg file
-        if: needs.metadata.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           brew install create-dmg
           mkdir dmg-build
@@ -446,29 +364,15 @@ jobs:
           ./scripts/macos-notarize-dmg.sh "${{ env.ARCHIVE_NAME }}.dmg"
 
       - name: Upload artifact (dmg)
-        if: needs.metadata.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARCHIVE_NAME }}
           path: ${{ env.ARCHIVE_NAME }}.dmg
-
-      - name: Package zip file
-        if: needs.metadata.outputs.release != 'true' && github.event_name != 'workflow_dispatch'
-        run: |
-          tar -cvf ${{ env.ARCHIVE_NAME }}.tar ${{ env.TARGET_NAME }}.app
-
-      - name: Upload artifact (tar)
-        uses: actions/upload-artifact@v4
-        if: needs.metadata.outputs.release != 'true' && github.event_name != 'workflow_dispatch'
-        with:
-          name: ${{ env.ARCHIVE_NAME }}
-          path: ${{ env.ARCHIVE_NAME }}.tar
-
   build-linux-x64:
     needs: metadata
     runs-on: ubuntu-22.04
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-linux-x64
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-linux-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -485,16 +389,9 @@ jobs:
 
       - name: Configure
         env:
-          NIGHTLY_BUILD: ${{ needs.metadata.outputs.release != 'true' && (github.event_name != 'workflow_dispatch' || inputs.nightly) }}
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
-          mkdir build
-          if ${{ env.NIGHTLY_BUILD }} ; then
-            cmake -DNIGHTLY_BUILD=ON -DQT_DEBUG_FIND_PACKAGE=ON -DGIT_HASH=$(git rev-parse --short=7 HEAD) -S . -B build
-          else
-            VER=${{ env.RELEASE_VERSION }}
-            cmake -DNIGHTLY_BUILD=OFF -DREL_VER=${VER#v} -S . -B build
-          fi
+          cmake -DNIGHTLY_BUILD=OFF -DREL_VER="${RELEASE_VERSION#v}" -S . -B build
 
       - name: Build
         run: |
@@ -502,7 +399,7 @@ jobs:
 
       - name: Download and copy files
         run: |
-          ./scripts/deploy-linux.sh "${{ env.TARGET_NAME }}" "${{ env.DISPLAY_NAME }}" "build" "x86_64" "${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}"
+          ./scripts/deploy-linux.sh "${{ env.TARGET_NAME }}" "${{ env.DISPLAY_NAME }}" "build" "x86_64" "false"
           mv *.AppImage ${{ env.ARCHIVE_NAME }}.AppImage
 
       - name: Upload artifact
@@ -515,7 +412,7 @@ jobs:
     needs: metadata
     runs-on: ubuntu-24.04-arm
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-linux-arm64
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-linux-arm64
     steps:
       - uses: actions/checkout@v4
         
@@ -537,16 +434,9 @@ jobs:
 
       - name: Configure
         env:
-          NIGHTLY_BUILD: ${{ needs.metadata.outputs.release != 'true' && (github.event_name != 'workflow_dispatch' || inputs.nightly) }}
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
-          mkdir build
-          if ${{ env.NIGHTLY_BUILD }} ; then
-            cmake -DNIGHTLY_BUILD=ON -DQT_DEBUG_FIND_PACKAGE=ON -DGIT_HASH=$(git rev-parse --short=7 HEAD) -S . -B build
-          else
-            VER=${{ env.RELEASE_VERSION }}
-            cmake -DNIGHTLY_BUILD=OFF -DREL_VER=${VER#v} -S . -B build
-          fi
+          cmake -DNIGHTLY_BUILD=OFF -DREL_VER="${RELEASE_VERSION#v}" -S . -B build
 
       - name: Build
         run: |
@@ -554,7 +444,7 @@ jobs:
 
       - name: Download and copy files
         run: |
-          ./scripts/deploy-linux.sh "${{ env.TARGET_NAME }}" "${{ env.DISPLAY_NAME }}" "build" "arm64" "${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}"
+          ./scripts/deploy-linux.sh "${{ env.TARGET_NAME }}" "${{ env.DISPLAY_NAME }}" "build" "arm64" "false"
           mv *.AppImage ${{ env.ARCHIVE_NAME }}.AppImage
 
       - name: Upload artifact
@@ -564,7 +454,6 @@ jobs:
           path: ${{ env.ARCHIVE_NAME }}.AppImage
 
   release:
-    if: needs.metadata.outputs.release == 'true'
     needs:
       - metadata
       - unit-tests
@@ -581,7 +470,7 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}-*
+          pattern: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-*
           path: release-assets
           merge-multiple: true
       - name: Create or update release
@@ -589,7 +478,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.metadata.outputs.version }}
-          PREFIX: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.artifact_version }}
+          PREFIX: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}
           PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
         run: |
           set -euo pipefail
