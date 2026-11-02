@@ -274,6 +274,7 @@ if(BUILD_TESTING)
 
     add_executable(profilemanager_test
         tests/profilemanager_test.cpp
+        application/profileservice.cpp
         infrastructure/settings/profilemanager.cpp
     )
     target_include_directories(profilemanager_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

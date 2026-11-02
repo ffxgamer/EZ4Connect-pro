@@ -30,8 +30,10 @@ ProfileManager::ProfileManager(const QString &storageRoot)
     profilesPath = QDir(configRootPath).filePath("profiles");
     statePath = QDir(configRootPath).filePath("state.ini");
     defaultProfilePath = QDir(configRootPath).filePath("config.ini");
+    draftProfilePath = QDir(configRootPath).filePath("draft.ini");
 
     ensureStorage();
+    migrateLegacyProfile();
 }
 
 QStringList ProfileManager::listProfiles() const
@@ -49,21 +51,38 @@ QStringList ProfileManager::listProfiles() const
     return profiles;
 }
 
+void ProfileManager::migrateLegacyProfile() const
+{
+    if (!QFileInfo::exists(defaultProfilePath)) return;
+    const QString id = ensureUniqueProfileId(QStringLiteral("VPN"));
+    if (!QFile::rename(defaultProfilePath, profilePath(id))) return;
+    QSettings state(statePath, QSettings::IniFormat);
+    if (state.value("Profile/Active").toString().isEmpty())
+    {
+        state.setValue("Profile/Active", id);
+        state.sync();
+    }
+}
+
+bool ProfileManager::hasLegacyProfile() const
+{
+    return QFileInfo::exists(defaultProfilePath);
+}
+
 QString ProfileManager::activeProfile() const
 {
     QSettings state(statePath, QSettings::IniFormat);
     QString profileId = normalizeProfileId(state.value("Profile/Active").toString());
-
-    if (!QFileInfo::exists(profilePath(profileId)))
+    const QStringList profiles = listProfiles();
+    if (profileId.isEmpty() || !profiles.contains(profileId))
     {
-        profileId = "";
-        if (!QFileInfo::exists(profilePath(profileId)))
-        {
-            createEmptyFile(profilePath(profileId));
-        }
+        if (QFileInfo::exists(defaultProfilePath)) profileId.clear();
+        else profileId = profiles.isEmpty() ? QString() : profiles.first();
         state.setValue("Profile/Active", profileId);
         state.sync();
     }
+    if (profileId.isEmpty() && !QFileInfo::exists(profilePath(profileId)))
+        createEmptyFile(profilePath(profileId));
     return profileId;
 }
 
@@ -86,7 +105,7 @@ QString ProfileManager::profilePath(const QString &profileId) const
     QString normalizedId = normalizeProfileId(profileId);
     if (normalizedId.isEmpty())
     {
-        return defaultProfilePath;
+        return QFileInfo::exists(defaultProfilePath) ? defaultProfilePath : draftProfilePath;
     }
     return QDir(profilesPath).filePath(normalizedId + ".ini");
 }
@@ -122,13 +141,13 @@ bool ProfileManager::renameProfile(const QString &oldId, const QString &newId) c
 {
     const QString sourceId = normalizeProfileId(oldId);
     const QString targetId = normalizeProfileId(newId);
-    if (sourceId.isEmpty() || targetId.isEmpty() || sourceId == targetId)
+    if (sourceId == targetId || (targetId.isEmpty() && QFileInfo::exists(defaultProfilePath)))
     {
         return false;
     }
 
     const QString sourcePath = profilePath(sourceId);
-    const QString targetPath = profilePath(targetId);
+    const QString targetPath = targetId.isEmpty() ? defaultProfilePath : profilePath(targetId);
     if (!QFileInfo::exists(sourcePath) || QFileInfo::exists(targetPath))
     {
         return false;
@@ -140,10 +159,7 @@ bool ProfileManager::renameProfile(const QString &oldId, const QString &newId) c
 bool ProfileManager::removeProfile(const QString &profileId) const
 {
     const QString normalizedId = normalizeProfileId(profileId);
-    if (normalizedId.isEmpty())
-    {
-        return false;
-    }
+    if (normalizedId.isEmpty() && !QFileInfo::exists(defaultProfilePath)) return false;
     return QFile::remove(profilePath(normalizedId));
 }
 

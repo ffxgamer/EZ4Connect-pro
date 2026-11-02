@@ -34,6 +34,7 @@ public:
     const VersionInfo &versionInfo() const;
     void markDisabled();
     void check();
+    void checkUi();
 
     static QString normalizeVersionTag(const QString &tag);
     static std::optional<QString> parseReleaseVersion(const QByteArray &payload);

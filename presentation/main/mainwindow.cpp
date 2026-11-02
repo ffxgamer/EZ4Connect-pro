@@ -107,32 +107,6 @@ MainWindow::MainWindow(
                     + "\n检查" + componentName + "更新失败"
                 );
             });
-    connect(updateChecker, &UpdateChecker::uiUpdateAvailable, this,
-            [this](const QString &latestVersion)
-            {
-#if defined(Q_OS_MACOS) && defined(Q_PROCESSOR_ARM_64)
-                showNotification("EZ4Connect Pro", "发现新版本 " + latestVersion + "，点击应用中的更新按钮查看。", QSystemTrayIcon::MessageIcon::Information);
-#else
-                QMessageBox msgBox(this);
-                msgBox.setText("UI 版本更新");
-                msgBox.setInformativeText(
-                    "存在 UI 版本更新：" + latestVersion + "\n是否前往 Github 发布页面查看？"
-                );
-                msgBox.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
-                msgBox.setDefaultButton(QMessageBox::Ok);
-
-                if (msgBox.exec() == QMessageBox::Ok)
-                {
-                    QDesktopServices::openUrl(
-                        QUrl(
-                            "https://github.com/" +
-                            ApplicationConstants::RepositoryName +
-                            "/releases/latest"
-                        )
-                    );
-                }
-#endif
-            });
     connect(applicationLogger, &ApplicationLogger::entryAdded, this,
             [this](const QString &entry)
             {
@@ -166,11 +140,6 @@ MainWindow::MainWindow(
     setWindowTitle(QApplication::applicationDisplayName());
     connect(ui->newProfileButton, &QToolButton::clicked, this, &MainWindow::createProfile);
     connect(ui->deleteProfileButton, &QToolButton::clicked, this, &MainWindow::deleteCurrentProfile);
-#if defined(Q_OS_MACOS) && defined(Q_PROCESSOR_ARM_64)
-    connect(ui->updatePushButton, &QPushButton::clicked, this, &MainWindow::openUpdateDialog);
-#else
-    ui->updatePushButton->hide();
-#endif
 
     updateVersionInfo();
     updateConnectionState(connectionSession->state());
@@ -389,6 +358,7 @@ MainWindow::MainWindow(
     else
     {
         updateChecker->markDisabled();
+        updateChecker->checkUi();
     }
 
     if (!profileService->silentStartEnabled())
@@ -467,7 +437,7 @@ void MainWindow::clearLog()
         "欢迎使用 " + QApplication::applicationDisplayName() + "\n"
         "当前版本：" + QApplication::applicationVersion() + "\n"
         "系统版本：" + QSysInfo::prettyProductName() + "\n"
-        "当前配置：" + (currentProfileId.isEmpty() ? "默认" : currentProfileId) + "\n"
+        "当前配置：" + (currentProfileId.isEmpty() ? "未选择" : currentProfileId) + "\n"
         "配置路径：" + settings->fileName() + "\n");
 }
 
@@ -548,7 +518,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
         && !connectionUiController->selectedProfileIsConnected())
     {
         const QString connectedName = connectionUiController->connectedProfileName();
-        const QString selectedName = currentProfileId.isEmpty() ? "默认" : currentProfileId;
+        const QString selectedName = currentProfileId.isEmpty() ? "未选择" : currentProfileId;
         ui->statusDetailLabel->setToolTip("当前连接：" + connectedName + "；已选择：" + selectedName);
         const auto shortName = [this](const QString &name)
         {
@@ -581,9 +551,14 @@ void MainWindow::updateConnectionState(ConnectionState state)
 
 void MainWindow::updateProfileSummary()
 {
+    if (!profileService->hasSelectedProfile())
+    {
+        ui->profileNameLabel->setText(QStringLiteral("尚无 VPN 配置"));
+        ui->profileDetailLabel->setText(QStringLiteral("点击＋添加配置"));
+        return;
+    }
     const QString profileName = currentProfileId.isEmpty()
-        ? QStringLiteral("默认")
-        : currentProfileId;
+        ? QStringLiteral("旧配置") : currentProfileId;
     const QString protocolSetting = settings->value(
         "ZJUConnect/Protocol",
         "easyconnect"
@@ -717,24 +692,22 @@ void MainWindow::refreshProfileMenu()
     }
 
     switchGroup->setExclusive(true);
-    QAction *action = ui->profileMenu->addAction("默认");
-    action->setCheckable(true);
-    action->setChecked(currentProfileId.isEmpty());
-    switchGroup->addAction(action);
-    connect(action, &QAction::triggered, this, [this]()
+    // A legacy configuration is shown only if migration could not move it.
+    if (profileService->hasLegacyProfile())
     {
-        requestProfileSelection("");
-    });
-    if (trayProfileMenu != nullptr)
-    {
-        QAction *trayAction = trayProfileMenu->addAction("默认");
-        trayAction->setCheckable(true);
-        trayAction->setChecked(currentProfileId.isEmpty());
-        traySwitchGroup->addAction(trayAction);
-        connect(trayAction, &QAction::triggered, this, [this]()
+        QAction *action = ui->profileMenu->addAction("旧配置");
+        action->setCheckable(true);
+        action->setChecked(!profileService->usesOverrideConfiguration() && currentProfileId.isEmpty());
+        switchGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [this]() { requestProfileSelection(""); });
+        if (trayProfileMenu != nullptr)
         {
-            requestProfileSelection("");
-        });
+            QAction *trayAction = trayProfileMenu->addAction("旧配置");
+            trayAction->setCheckable(true);
+            trayAction->setChecked(!profileService->usesOverrideConfiguration() && currentProfileId.isEmpty());
+            traySwitchGroup->addAction(trayAction);
+            connect(trayAction, &QAction::triggered, this, [this]() { requestProfileSelection(""); });
+        }
     }
 
     for (const QString &profileId : profileService->profiles())
@@ -768,11 +741,15 @@ void MainWindow::refreshProfileMenu()
     }
 
     const bool currentProfileIsManaged =
-        !currentProfileId.isEmpty()
-        && !profileService->usesOverrideConfiguration();
+        profileService->hasSelectedProfile() && !profileService->usesOverrideConfiguration();
     renameProfileAction->setEnabled(currentProfileIsManaged);
     deleteProfileAction->setEnabled(currentProfileIsManaged);
     ui->deleteProfileButton->setEnabled(currentProfileIsManaged);
+    const bool hasProfile = profileService->hasSelectedProfile();
+    ui->pushButton1->setEnabled(hasProfile);
+    trayConnectAction->setEnabled(hasProfile);
+    ui->settingAction->setEnabled(hasProfile);
+    ui->settingPushButton->setEnabled(hasProfile);
     refreshProfileList();
 }
 
@@ -814,7 +791,8 @@ void MainWindow::refreshProfileList()
     };
     if (profileService->usesOverrideConfiguration())
         addRow(currentProfileId, QStringLiteral("自定义配置"), true);
-    addRow(QString(), QStringLiteral("默认"), false);
+    if (profileService->hasLegacyProfile())
+        addRow(QString(), QStringLiteral("旧配置"), false);
     for (const QString &id : profileService->profiles())
         addRow(id, id, false);
 }
@@ -909,10 +887,9 @@ void MainWindow::createProfile()
     if (!ok)
         return;
     const QString normalizedName = profileService->normalizeProfileId(name);
-    if (normalizedName.isEmpty() || normalizedName == QStringLiteral("默认") ||
-        normalizedName.compare("state", Qt::CaseInsensitive) == 0)
+    if (normalizedName.isEmpty() || normalizedName.compare("state", Qt::CaseInsensitive) == 0)
     {
-        QMessageBox::warning(this, "名称无效", "请输入有效的配置名称，且不要使用“默认”或“state”。");
+        QMessageBox::warning(this, "名称无效", "请输入有效的配置名称，且不要使用“state”。");
         return;
     }
 
@@ -957,6 +934,11 @@ void MainWindow::createProfile()
 
 void MainWindow::openConfigurationGuide()
 {
+    if (!profileService->hasSelectedProfile())
+    {
+        createProfile();
+        return;
+    }
     if (connectionSession != nullptr && connectionSession->isActive())
     {
         QMessageBox::warning(
@@ -1071,10 +1053,9 @@ void MainWindow::renameCurrentProfile()
     }
 
     const QString normalizedName = profileService->normalizeProfileId(name);
-    if (normalizedName.isEmpty() || normalizedName == QStringLiteral("默认") ||
-        normalizedName.compare("state", Qt::CaseInsensitive) == 0)
+    if (normalizedName.isEmpty() || normalizedName.compare("state", Qt::CaseInsensitive) == 0)
     {
-        QMessageBox::warning(this, "重命名失败", "请输入有效的配置名称，且不要使用“默认”或“state”。");
+        QMessageBox::warning(this, "重命名失败", "请输入有效的配置名称，且不要使用“state”。");
         return;
     }
     if (normalizedName == currentProfileId)
@@ -1108,9 +1089,9 @@ void MainWindow::renameCurrentProfile()
 
 void MainWindow::deleteCurrentProfile()
 {
-    if (currentProfileId.isEmpty() || profileService->usesOverrideConfiguration())
+    if (!profileService->hasSelectedProfile() || profileService->usesOverrideConfiguration())
     {
-        QMessageBox::warning(this, "删除失败", "默认配置或外部指定的配置不可删除。");
+        QMessageBox::warning(this, "删除失败", "请先选择可管理的配置。");
         return;
     }
 
@@ -1121,7 +1102,7 @@ void MainWindow::deleteCurrentProfile()
     }
 
     const QString removedProfileId = currentProfileId;
-    DeleteProfileDialog dialog(removedProfileId, this);
+    DeleteProfileDialog dialog(removedProfileId.isEmpty() ? QStringLiteral("旧配置") : removedProfileId, this);
     if (dialog.exec() != QDialog::Accepted)
     {
         return;
@@ -1141,7 +1122,7 @@ void MainWindow::deleteCurrentProfile()
     {
         settingWindow->close();
     }
-    if (!profileService->removeCurrentAndSwitchToDefault())
+    if (!profileService->removeCurrentAndSwitchToAnother())
     {
         QMessageBox::warning(this, "删除失败", "无法删除该配置文件。");
         return;
@@ -1189,6 +1170,10 @@ void MainWindow::upgradeSettings()
 void MainWindow::updateVersionInfo()
 {
     const VersionInfo &versionInfo = updateChecker->versionInfo();
+    const bool updateAvailable = UpdateChecker::isNewerVersion(versionInfo.uiVersion, versionInfo.uiLatest);
+    ui->checkUpdateAction->setText(updateAvailable
+        ? QStringLiteral("检查更新（新版本 %1）").arg(versionInfo.uiLatest)
+        : QStringLiteral("检查更新"));
     ui->versionLabel->setText("版本 " + versionInfo.uiVersion);
     ui->versionLabel->setToolTip(
         "UI 版本：" + versionInfo.uiVersion + "（最新：" + versionInfo.uiLatest + "）\n"

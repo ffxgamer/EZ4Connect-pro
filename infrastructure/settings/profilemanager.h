@@ -14,6 +14,7 @@ public:
     QStringList listProfiles() const override;
 
     QString activeProfile() const override;
+    bool hasLegacyProfile() const override;
 
     bool setActiveProfile(const QString &profileId) const override;
 
@@ -43,6 +44,9 @@ private:
     QString profilesPath;
     QString statePath;
     QString defaultProfilePath;
+    QString draftProfilePath;
+
+    void migrateLegacyProfile() const;
 
     QString ensureUniqueProfileId(const QString &baseId) const;
 

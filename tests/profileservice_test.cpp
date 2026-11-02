@@ -40,6 +40,8 @@ public:
         return result;
     }
 
+    bool hasLegacyProfile() const override { return QFileInfo::exists(profilePath("")); }
+
     QString activeProfile() const override
     {
         return activeId;
@@ -171,7 +173,7 @@ bool managesCurrentProfileAsOneUnit()
 
     QSettings *renamedSettings = service.settings();
     fake->allowActiveProfileChange = false;
-    if (service.removeCurrentAndSwitchToDefault()
+    if (service.removeCurrentAndSwitchToAnother()
         || service.currentProfileId() != "renamed"
         || service.settings() != renamedSettings
         || !QFileInfo::exists(fake->profilePath("renamed"))
@@ -183,7 +185,7 @@ bool managesCurrentProfileAsOneUnit()
     fake->allowActiveProfileChange = true;
 
     fake->allowProfileRemoval = false;
-    if (service.removeCurrentAndSwitchToDefault()
+    if (service.removeCurrentAndSwitchToAnother()
         || service.currentProfileId() != "renamed"
         || service.settings() != renamedSettings
         || !QFileInfo::exists(fake->profilePath("renamed"))
@@ -196,7 +198,7 @@ bool managesCurrentProfileAsOneUnit()
     fake->allowProfileRemoval = true;
     service.migrateAutoStartSetting(true);
     if (!fake->migratedAutoStart
-        || !service.removeCurrentAndSwitchToDefault()
+        || !service.removeCurrentAndSwitchToAnother()
         || !service.currentProfileId().isEmpty())
     {
         qCritical() << "profile removal or global setting migration failed";
@@ -256,7 +258,7 @@ bool acceptsCustomAsARegularProfileId()
         qCritical() << "custom profile rename failed";
         return false;
     }
-    if (!service.removeCurrentAndSwitchToDefault())
+    if (!service.removeCurrentAndSwitchToAnother())
     {
         qCritical() << "renamed custom profile removal failed";
         return false;

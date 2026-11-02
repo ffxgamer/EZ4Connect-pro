@@ -12,7 +12,7 @@ DeleteProfileDialog::DeleteProfileDialog(const QString &profileName, QWidget *pa
     setWindowTitle(QStringLiteral("删除配置"));
     auto *layout = new QVBoxLayout(this);
     auto *message = new QLabel(
-        QStringLiteral("配置“%1”及其保存的登录信息将被删除，之后会切换到默认配置。此操作无法撤销。\n\n请输入完整配置名称以确认删除：").arg(profileName), this);
+        QStringLiteral("配置“%1”及其保存的登录信息将被删除，此操作无法撤销。\n\n请输入完整配置名称以确认删除：").arg(profileName), this);
     message->setTextFormat(Qt::PlainText);
     message->setWordWrap(true);
     layout->addWidget(message);

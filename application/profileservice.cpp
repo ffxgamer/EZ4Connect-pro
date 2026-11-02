@@ -1,5 +1,6 @@
 #include "profileservice.h"
 
+#include <QFile>
 #include <QFileInfo>
 #include <QSettings>
 
@@ -106,7 +107,7 @@ QString ProfileService::createAndSwitch(const QString &requestedName, bool copyC
 
 bool ProfileService::renameCurrent(const QString &newProfileId)
 {
-    if (currentId.isEmpty() || overrideConfiguration)
+    if (overrideConfiguration || !hasSelectedProfile())
     {
         return false;
     }
@@ -133,35 +134,51 @@ bool ProfileService::renameCurrent(const QString &newProfileId)
     return true;
 }
 
-bool ProfileService::removeCurrentAndSwitchToDefault()
+bool ProfileService::hasLegacyProfile() const
 {
-    if (currentId.isEmpty() || overrideConfiguration)
-    {
-        return false;
-    }
+    return profileBackend->hasLegacyProfile();
+}
 
-    const QString removedProfileId = currentId;
-    const QString defaultProfilePath = profileBackend->profilePath("");
-    if (!QFileInfo::exists(defaultProfilePath))
-    {
-        return false;
-    }
+bool ProfileService::hasSelectedProfile() const
+{
+    return overrideConfiguration || !currentId.isEmpty()
+        || profileBackend->hasLegacyProfile();
+}
 
+bool ProfileService::removeCurrentAndSwitchToAnother()
+{
+    if (overrideConfiguration || !hasSelectedProfile()) return false;
+    const QString removedId = currentId;
+    QStringList remaining = profileBackend->listProfiles();
+    remaining.removeAll(removedId);
+    const QString nextId = remaining.isEmpty() ? QString() : remaining.first();
     currentSettings->sync();
-    if (!profileBackend->setActiveProfile(""))
+    if (nextId.isEmpty() && removedId.isEmpty())
     {
+        // The legacy file is the last profile. Remove it before opening the empty draft.
+        if (!profileBackend->removeProfile(removedId)) return false;
+        delete currentSettings;
+        currentSettings = new QSettings(profileBackend->profilePath(""), QSettings::IniFormat);
+        currentSettings->sync();
+        currentId.clear();
+        profileBackend->setActiveProfile("");
+        return true;
+    }
+    // A draft is used only when no named profiles remain.
+    if (nextId.isEmpty() && !QFileInfo::exists(profileBackend->profilePath("")))
+    {
+        QFile draft(profileBackend->profilePath(""));
+        if (!draft.open(QIODevice::WriteOnly | QIODevice::NewOnly)) return false;
+    }
+    if (!profileBackend->setActiveProfile(nextId)) return false;
+    if (!profileBackend->removeProfile(removedId))
+    {
+        profileBackend->setActiveProfile(removedId);
         return false;
     }
-
-    if (!profileBackend->removeProfile(removedProfileId))
-    {
-        profileBackend->setActiveProfile(removedProfileId);
-        return false;
-    }
-
     delete currentSettings;
-    currentSettings = new QSettings(defaultProfilePath, QSettings::IniFormat);
-    currentId.clear();
+    currentSettings = new QSettings(profileBackend->profilePath(nextId), QSettings::IniFormat);
+    currentId = nextId;
     return true;
 }
 

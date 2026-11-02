@@ -257,7 +257,7 @@ jobs:
             --volname "${{ env.DISPLAY_NAME }}" \
             --volicon ./resource/icon.icns \
             --background "$RUNNER_TEMP/dmg-background.png" \
-            --window-size 680 340 \
+            --window-size 680 420 \
             --app-drop-link 470 145 \
             --add-file "${{ env.DISPLAY_NAME }}.app" "./${{ env.TARGET_NAME }}.app" 210 145 \
             --filesystem APFS \
@@ -377,7 +377,7 @@ jobs:
             --volname "${{ env.DISPLAY_NAME }}" \
             --volicon ./resource/icon.icns \
             --background "$RUNNER_TEMP/dmg-background.png" \
-            --window-size 680 340 \
+            --window-size 680 420 \
             --app-drop-link 470 145 \
             --add-file "${{ env.DISPLAY_NAME }}.app" "./${{ env.TARGET_NAME }}.app" 210 145 \
             --filesystem APFS \

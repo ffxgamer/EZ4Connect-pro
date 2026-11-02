@@ -2,6 +2,8 @@
 #include <QDebug>
 #include <QFileInfo>
 #include <QTemporaryDir>
+#include <QSettings>
+#include "application/profileservice.h"
 
 #include "infrastructure/settings/profilemanager.h"
 
@@ -14,9 +16,11 @@ bool createsPhysicalFilesForEmptyProfiles()
 
     if (!manager.activeProfile().isEmpty()
         || !QFileInfo::exists(manager.profilePath(""))
+        || manager.hasLegacyProfile()
+        || !manager.listProfiles().isEmpty()
         || !manager.setActiveProfile(""))
     {
-        qCritical() << "default profile file was not created";
+        qCritical() << "empty draft was not created";
         return false;
     }
 
@@ -39,10 +43,42 @@ bool createsPhysicalFilesForEmptyProfiles()
     }
     return true;
 }
+
+bool migratesAndRemovesLegacyProfile()
+{
+    QTemporaryDir directory;
+    {
+        QSettings legacy(directory.filePath("config.ini"), QSettings::IniFormat);
+        legacy.setValue("ZJUConnect/ServerAddress", "192.0.2.1");
+        legacy.setValue("Credential/Username", "legacy-user");
+        legacy.setValue("Credential/Password", "legacy-password");
+        legacy.sync();
+    }
+    {
+        auto manager = std::make_unique<ProfileManager>(directory.path());
+        ProfileService service(std::move(manager));
+        if (service.currentProfileId() != "VPN"
+            || service.settings()->value("Credential/Username") != "legacy-user"
+            || service.settings()->value("Credential/Password") != "legacy-password"
+            || QFileInfo::exists(directory.filePath("config.ini"))) return false;
+        if (!service.renameCurrent(QStringLiteral("公司"))
+            || service.settings()->value("ZJUConnect/ServerAddress") != "192.0.2.1") return false;
+        if (service.createAndSwitch(QStringLiteral("学校"), false) != QStringLiteral("学校")) return false;
+        if (!service.switchTo(QStringLiteral("公司")) || !service.removeCurrentAndSwitchToAnother()
+            || service.currentProfileId() != QStringLiteral("学校")) return false;
+        if (!service.removeCurrentAndSwitchToAnother() || service.hasSelectedProfile()
+            || !service.profiles().isEmpty()) return false;
+    }
+    ProfileManager reloaded(directory.path());
+    if (!reloaded.activeProfile().isEmpty() || !reloaded.listProfiles().isEmpty()
+        || reloaded.hasLegacyProfile()) return false;
+    return true;
+}
+
 }
 
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return createsPhysicalFilesForEmptyProfiles() ? 0 : 1;
+    return createsPhysicalFilesForEmptyProfiles() && migratesAndRemovesLegacyProfile() ? 0 : 1;
 }

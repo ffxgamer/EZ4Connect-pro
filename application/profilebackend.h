@@ -11,6 +11,7 @@ public:
 
     virtual QStringList listProfiles() const = 0;
     virtual QString activeProfile() const = 0;
+    virtual bool hasLegacyProfile() const = 0;
     virtual bool setActiveProfile(const QString &profileId) const = 0;
     virtual QString profilePath(const QString &profileId) const = 0;
     virtual QString createProfile(

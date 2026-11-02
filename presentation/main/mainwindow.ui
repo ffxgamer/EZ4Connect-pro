@@ -135,12 +135,6 @@
        </widget>
       </item>
       <item>
-       <widget class="QPushButton" name="updatePushButton">
-        <property name="toolTip"><string>检查并安装应用更新</string></property>
-        <property name="text"><string>更新</string></property>
-       </widget>
-      </item>
-      <item>
        <widget class="QPushButton" name="settingPushButton">
         <property name="toolTip">
          <string>打开完整设置</string>

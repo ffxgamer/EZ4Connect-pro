@@ -29,7 +29,9 @@ public:
     bool switchTo(const QString &profileId);
     QString createAndSwitch(const QString &requestedName, bool copyCurrent = true);
     bool renameCurrent(const QString &newProfileId);
-    bool removeCurrentAndSwitchToDefault();
+    bool removeCurrentAndSwitchToAnother();
+    bool hasSelectedProfile() const;
+    bool hasLegacyProfile() const;
 
     QString normalizeProfileId(const QString &name) const;
     bool silentStartEnabled() const;

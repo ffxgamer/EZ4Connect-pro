@@ -167,13 +167,7 @@ void UpdateChecker::check()
     }
     emit versionInfoChanged(versions);
 
-    uiNetworkManager->get(QNetworkRequest(
-        QUrl(
-            "https://api.github.com/repos/" +
-            ApplicationConstants::RepositoryName +
-            "/releases/latest"
-        )
-    ));
+    checkUi();
     coreNetworkManager->get(QNetworkRequest(
         QUrl(
             "https://api.github.com/repos/" +
@@ -181,6 +175,12 @@ void UpdateChecker::check()
             "/releases/latest"
         )
     ));
+}
+
+void UpdateChecker::checkUi()
+{
+    uiNetworkManager->get(QNetworkRequest(QUrl(
+        "https://api.github.com/repos/" + ApplicationConstants::RepositoryName + "/releases/latest")));
 }
 
 QString UpdateChecker::normalizeVersionTag(const QString &tag)
