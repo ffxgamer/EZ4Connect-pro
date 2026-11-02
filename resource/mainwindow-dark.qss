@@ -61,8 +61,7 @@ QMenu::item:selected {
 }
 
 #statusDetailLabel,
-#profileDetailLabel,
-#qqGroupLabel {
+#profileDetailLabel {
     color: #acbac2;
 }
 

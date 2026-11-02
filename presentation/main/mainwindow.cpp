@@ -767,12 +767,9 @@ void MainWindow::requestProfileSelection(
     }
     if (connectionSession->isActive())
     {
-        if (!profileSwitchPending)
-            pendingSwitchWasConnected = connectionSession->state() != ConnectionState::Stopping;
         pendingProfileId = profileId;
         pendingProfileEdit = edit;
         pendingProfileOverride = overrideTarget;
-        pendingProfileReconnect = !edit && pendingSwitchWasConnected;
         if (!profileSwitchPending)
         {
             profileSwitchPending = true;
@@ -781,7 +778,6 @@ void MainWindow::requestProfileSelection(
                     {
                         const QString id = pendingProfileId;
                         const bool edit = pendingProfileEdit;
-                        const bool reconnect = pendingProfileReconnect;
                         const bool overrideTarget = pendingProfileOverride;
                         profileSwitchPending = false;
                         if (!overrideTarget && !switchProfile(id))
@@ -791,8 +787,6 @@ void MainWindow::requestProfileSelection(
                         }
                         if (edit)
                             ui->settingAction->trigger();
-                        else if (reconnect)
-                            QTimer::singleShot(0, this, [this]() { ui->pushButton1->click(); });
                     }, Qt::SingleShotConnection);
             connectionSession->stop();
         }

@@ -207,11 +207,18 @@ QWidget *ConfigurationGuideDialog::createServerPage()
     formLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
 
     serverAddressLineEdit = new QLineEdit(page);
-    serverAddressLineEdit->setPlaceholderText("例如：vpn.example.edu.cn");
+    serverAddressLineEdit->setPlaceholderText("例如：192.0.2.1");
     serverAddressLineEdit->setText(
         sourceSettings->value("ZJUConnect/ServerAddress").toString()
     );
     formLayout->addRow("服务器地址", serverAddressLineEdit);
+
+    auto *serverAddressHint = new QLabel(
+        "只填写 IP 地址，不要包含 http://、https:// 或端口号；端口请单独填写。",
+        page
+    );
+    serverAddressHint->setWordWrap(true);
+    formLayout->addRow(QString(), serverAddressHint);
 
     serverPortSpinBox = new QSpinBox(page);
     serverPortSpinBox->setRange(1, 65535);

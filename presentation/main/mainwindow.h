@@ -122,8 +122,6 @@ private:
     QString pendingProfileId;
     bool profileSwitchPending = false;
     bool pendingProfileEdit = false;
-    bool pendingProfileReconnect = false;
-    bool pendingSwitchWasConnected = false;
     bool pendingProfileOverride = false;
 
     QPointer<SettingWindow> settingWindow;
