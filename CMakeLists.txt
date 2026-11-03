@@ -140,6 +140,11 @@ target_link_libraries(${PROJECT_NAME}
 include(CTest)
 
 if(BUILD_TESTING)
+    add_executable(updaterestartstate_test tests/updaterestartstate_test.cpp)
+    target_include_directories(updaterestartstate_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(updaterestartstate_test Qt::Core)
+    add_test(NAME updaterestartstate_test COMMAND updaterestartstate_test)
+
     add_executable(connectionuicontroller_test
         tests/connectionuicontroller_test.cpp
         presentation/coordinators/connectionuicontroller.cpp

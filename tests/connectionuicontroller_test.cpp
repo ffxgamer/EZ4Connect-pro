@@ -127,7 +127,9 @@ bool selectionKeepsConnectionUntilConnect()
     controller.profileSelectionChanged();
     if (core->stopCalls != 0 || session.state() != ConnectionState::Running
         || connectButton.text() != "连接服务器"
-        || controller.connectedProfileName() != "first") return false;
+        || controller.connectedProfileName() != "first"
+        || controller.connectedProfileId() != "first"
+        || controller.connectedConfigPath() != first.fileName()) return false;
 
     auth.requestGraphCaptcha(QString());
     auto *captcha = window.findChild<GraphCaptchaWindow *>();
@@ -160,10 +162,54 @@ bool selectionKeepsConnectionUntilConnect()
     core->finish();
     return !session.isActive() && connectButton.text() == "连接服务器";
 }
+
+bool restoresProxyStateAfterUpdate()
+{
+    QTemporaryDir directory;
+    if (!directory.isValid()) return false;
+    QSettings settings(directory.filePath("vpn.ini"), QSettings::IniFormat);
+    configure(settings, "vpn.example", 11081);
+    settings.setValue("Common/AutoSetProxy", true);
+    QWidget window;
+    QPushButton connectButton;
+    QPushButton proxyButton;
+    QAction trayAction(&window);
+    auto *core = new FakeCoreProcess;
+    ConnectionSession session(core);
+    auto backend = std::make_unique<FakeProxyBackend>();
+    auto *proxyBackend = backend.get();
+    SystemProxySession proxy(std::move(backend));
+    AuthDialogCoordinator auth(&window, &settings);
+    ApplicationLogger logger;
+    ConnectionUiController controller(
+        &window, &connectButton, &proxyButton, &trayAction, &session, &proxy,
+        &auth, &logger, [&]() { return &settings; }, []() { return QStringLiteral("vpn"); },
+        [](const QString &, const QString &, QSystemTrayIcon::MessageIcon) {}
+    );
+
+    controller.restoreProxyOnNextConnection(false);
+    connectButton.click();
+    if (core->startCalls != 1 || proxy.isEnabled() || proxyBackend->appliedHttpPort != 0)
+        return false;
+    connectButton.click();
+    core->finish();
+
+    settings.setValue("Common/AutoSetProxy", false);
+    controller.restoreProxyOnNextConnection(true);
+    connectButton.click();
+    if (!waitFor([&]() { return proxy.isEnabled(); })
+        || core->startCalls != 2 || proxyBackend->appliedHttpPort != 11081)
+        return false;
+    proxy.disable();
+    if (!waitFor([&]() { return !proxy.isBusy(); })) return false;
+    connectButton.click();
+    core->finish();
+    return !session.isActive();
+}
 }
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
-    return selectionKeepsConnectionUntilConnect() ? 0 : 1;
+    return selectionKeepsConnectionUntilConnect() && restoresProxyStateAfterUpdate() ? 0 : 1;
 }

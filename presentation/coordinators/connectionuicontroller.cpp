@@ -63,6 +63,8 @@ ConnectionUiController::ConnectionUiController(
         this,
         []() { qWarning().noquote() << "sudo 密码可能有误，不使用记住的密码"; }
     );
+    connect(authenticationDialogs, &AuthDialogCoordinator::connectionCredentialsCancelled,
+            this, [this]() { restoreProxyAfterUpdate.reset(); });
     connect(
         authenticationDialogs,
         &AuthDialogCoordinator::loginSubmitted,
@@ -175,6 +177,22 @@ bool ConnectionUiController::selectedProfileIsConnected() const
 QString ConnectionUiController::connectedProfileName() const
 {
     return activeProfileId.isEmpty() ? QStringLiteral("默认") : activeProfileId;
+}
+
+QString ConnectionUiController::connectedProfileId() const
+{
+    return activeProfileId;
+}
+
+QString ConnectionUiController::connectedConfigPath() const
+{
+    return activeSettings ? activeSettings->fileName() : QString();
+}
+
+void ConnectionUiController::restoreProxyOnNextConnection(bool enabled)
+{
+    restoreProxyAfterUpdate = enabled;
+    restoreProxyConfigPath = settings()->fileName();
 }
 
 void ConnectionUiController::profileSelectionChanged()
@@ -441,13 +459,17 @@ void ConnectionUiController::startConnection(
     {
         authenticationDialogs->setSettings(settings());
         activeSettings.reset();
+        restoreProxyAfterUpdate.reset();
         return;
     }
 
     profileSelectionChanged();
     proxyButton->show();
 
-    if (settings()->value("Common/AutoSetProxy", false).toBool())
+    const bool useSystemProxy = restoreProxyAfterUpdate && restoreProxyConfigPath == settings()->fileName()
+        ? *restoreProxyAfterUpdate : settings()->value("Common/AutoSetProxy", false).toBool();
+    restoreProxyAfterUpdate.reset();
+    if (useSystemProxy)
     {
         proxyButton->click();
     }

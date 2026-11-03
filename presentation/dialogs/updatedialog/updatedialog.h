@@ -14,7 +14,8 @@ class QPushButton;
 class UpdateDialog : public QDialog
 {
 public:
-    explicit UpdateDialog(std::function<bool()> canInstall, QWidget *parent = nullptr);
+    explicit UpdateDialog(std::function<std::optional<QString>()> prepareRestart,
+                          std::function<void()> quitForUpdate, QWidget *parent = nullptr);
     void checkForUpdates();
 
 private:
@@ -25,5 +26,6 @@ private:
     QPushButton *checkButton;
     QPushButton *installButton;
     std::optional<UpdateAsset> asset;
-    std::function<bool()> canInstall;
+    std::function<std::optional<QString>()> prepareRestart;
+    std::function<void()> quitForUpdate;
 };

@@ -97,8 +97,9 @@ QList<QUrl> routes(const QString &proxy, const QUrl &source)
 }
 }
 
-UpdateDialog::UpdateDialog(std::function<bool()> canInstall, QWidget *parent)
-    : QDialog(parent), canInstall(std::move(canInstall))
+UpdateDialog::UpdateDialog(std::function<std::optional<QString>()> prepareRestart,
+                           std::function<void()> quitForUpdate, QWidget *parent)
+    : QDialog(parent), prepareRestart(std::move(prepareRestart)), quitForUpdate(std::move(quitForUpdate))
 {
     setWindowTitle(QStringLiteral("应用更新"));
     resize(520, 220);
@@ -158,7 +159,7 @@ void UpdateDialog::checkForUpdates()
     }
     else
     {
-        statusLabel->setText(QStringLiteral("发现新版本 %1，下载并安装后应用将重新启动。").arg(asset->version));
+        statusLabel->setText(QStringLiteral("发现新版本 %1。下载期间 VPN 保持连接，安装时会短暂断开并在重启后恢复。").arg(asset->version));
         installButton->setEnabled(true);
     }
     proxyInput->setEnabled(true);
@@ -172,21 +173,12 @@ void UpdateDialog::installUpdate()
     return;
 #else
     if (!asset) return;
-    if (!canInstall())
-    {
-        QMessageBox::warning(this, "无法更新", "请先断开 VPN 并关闭系统代理，再安装更新。");
-        return;
-    }
     const QString appPath = QFileInfo(QCoreApplication::applicationDirPath() + "/../..").canonicalFilePath();
     if (!appPath.endsWith(".app") || !QFileInfo(QFileInfo(appPath).absolutePath()).isWritable())
     {
         QMessageBox::warning(this, QStringLiteral("无法更新"), QStringLiteral("请先将应用安装到可写入的“应用程序”文件夹，再运行更新。"));
         return;
     }
-    if (QMessageBox::question(this, QStringLiteral("安装更新"),
-        QStringLiteral("将下载并安装 %1，应用会退出并重新启动。请先断开 VPN。是否继续？").arg(asset->version),
-        QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes) return;
-
     QTemporaryDir work(QDir::tempPath() + "/ez4connect-update-XXXXXX");
     if (!work.isValid()) { QMessageBox::warning(this, "更新失败", "无法创建临时目录。"); return; }
     checkButton->setEnabled(false);
@@ -214,20 +206,22 @@ void UpdateDialog::installUpdate()
     }
     QFile source(":/resource/update-macos.sh");
     const QString script = work.filePath("install.sh");
-    if (!canInstall())
-    {
-        QMessageBox::warning(this, "无法更新", "VPN 或系统代理状态已变化，请先断开后重试。");
-        proxyInput->setEnabled(true); checkButton->setEnabled(true); installButton->setEnabled(true);
-        return;
-    }
     if (!source.copy(script))
     {
         QMessageBox::warning(this, "更新失败", "无法准备安装程序。");
         proxyInput->setEnabled(true); checkButton->setEnabled(true); installButton->setEnabled(true);
         return;
     }
+    statusLabel->setText(QStringLiteral("下载完成，正在准备安装…"));
+    const std::optional<QString> restartToken = prepareRestart();
+    if (!restartToken)
+    {
+        statusLabel->setText(QStringLiteral("无法完成更新准备，请稍后重试。"));
+        proxyInput->setEnabled(true); checkButton->setEnabled(true); installButton->setEnabled(true);
+        return;
+    }
     const bool started = QProcess::startDetached("/bin/bash", {script, work.path(), appPath,
-        QString::number(QCoreApplication::applicationPid()), asset->version});
+        QString::number(QCoreApplication::applicationPid()), asset->version, *restartToken});
     if (!started)
     {
         QMessageBox::warning(this, "更新失败", "无法启动安装程序。");
@@ -235,6 +229,6 @@ void UpdateDialog::installUpdate()
         return;
     }
     work.setAutoRemove(false);
-    QCoreApplication::quit();
+    quitForUpdate();
 #endif
 }

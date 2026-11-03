@@ -139,6 +139,12 @@ bool ProfileService::hasLegacyProfile() const
     return profileBackend->hasLegacyProfile();
 }
 
+bool ProfileService::matchesManagedProfile(const QString &id, const QString &path) const
+{
+    return QFileInfo(profileBackend->profilePath(id)).absoluteFilePath()
+        == QFileInfo(path).absoluteFilePath();
+}
+
 bool ProfileService::hasSelectedProfile() const
 {
     return overrideConfiguration || !currentId.isEmpty()

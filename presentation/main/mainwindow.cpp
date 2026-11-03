@@ -6,6 +6,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
+#include <QEventLoop>
 #include <QFontDatabase>
 #include <QCoreApplication>
 #include <QGuiApplication>
@@ -27,6 +28,7 @@
 #include "application/commandlineoptions.h"
 #include "application/defaultsettings.h"
 #include "application/settingsmigrator.h"
+#include "application/updaterestartstate.h"
 #include "infrastructure/coreprocess/devicetrust.h"
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/storage/applicationpaths.h"
@@ -66,8 +68,16 @@ MainWindow::MainWindow(
     applicationLogger(logger),
     applicationLogFile(logFile)
 {
-    const QString overrideConfigPath =
-        CommandLineOptions::value(QCoreApplication::arguments(), "--config-path");
+    const QStringList arguments = QCoreApplication::arguments();
+    const QString updatedVersion = CommandLineOptions::value(arguments, "--update-complete");
+    const QString updateError = CommandLineOptions::value(arguments, "--update-error");
+    const bool restartingAfterUpdate = !updatedVersion.isEmpty() || !updateError.isEmpty();
+    const auto resumeState = restartingAfterUpdate
+        ? UpdateRestartState::decode(CommandLineOptions::value(arguments, "--resume-vpn"))
+        : std::nullopt;
+    QString overrideConfigPath = CommandLineOptions::value(arguments, "--config-path");
+    if (resumeState && resumeState->externalConfig && QFileInfo::exists(resumeState->configPath))
+        overrideConfigPath = resumeState->configPath;
     coordinator = new MainWindowCoordinator(this, overrideConfigPath, this);
     profileService = coordinator->profiles();
     currentProfileId = profileService->currentProfileId();
@@ -89,6 +99,7 @@ MainWindow::MainWindow(
     applyColorScheme(styleHints->colorScheme());
     // Keep the controls below the status text in the same place when it wraps.
     reserveSidebarTextSpace(ui->statusDetailLabel, ui->profileNameLabel, ui->profileDetailLabel);
+    reserveProxyButtonSpace(ui->pushButton2);
     connect(styleHints, &QStyleHints::colorSchemeChanged,
             this, &MainWindow::applyColorScheme);
     authenticationDialogs = coordinator->authenticationDialogs();
@@ -346,7 +357,7 @@ MainWindow::MainWindow(
     {
         shouldConnect = true;
     }
-    if (shouldConnect)
+    if (shouldConnect && !restartingAfterUpdate)
     {
         ui->pushButton1->click();
     }
@@ -364,7 +375,7 @@ MainWindow::MainWindow(
     if (!profileService->silentStartEnabled())
     {
         show();
-        if (isFirstLaunch)
+        if (isFirstLaunch && !restartingAfterUpdate)
         {
             QTimer::singleShot(
                 0,
@@ -373,27 +384,61 @@ MainWindow::MainWindow(
             );
         }
     }
-    const QString updatedVersion = CommandLineOptions::value(qApp->arguments(), "--update-complete");
-    const QString updateError = CommandLineOptions::value(qApp->arguments(), "--update-error");
-    if (!updatedVersion.isEmpty() || !updateError.isEmpty())
+    if (restartingAfterUpdate)
     {
-        QTimer::singleShot(0, this, [this, updatedVersion, updateError]()
+        QTimer::singleShot(0, this, [this, resumeState, updatedVersion, updateError]()
         {
-            show();
-            if (!updateError.isEmpty()) QMessageBox::warning(this, "更新失败", updateError);
-            else if (updatedVersion == QApplication::applicationVersion())
-                QMessageBox::information(this, "更新成功", "已成功更新至版本 " + updatedVersion + "。");
-            else QMessageBox::warning(this, "更新未完成", "启动版本与更新版本不一致，请检查安装包。");
+            if (resumeState)
+            {
+                const bool exists = QFileInfo::exists(resumeState->configPath);
+                const bool selected = resumeState->externalConfig
+                    ? profileService->usesOverrideConfiguration()
+                    : switchProfile(resumeState->profileId);
+                if (exists && selected
+                    && QFileInfo(settings->fileName()).absoluteFilePath()
+                        == QFileInfo(resumeState->configPath).absoluteFilePath())
+                {
+                    connectionUiController->restoreProxyOnNextConnection(resumeState->restoreSystemProxy);
+                    ui->pushButton1->click();
+                }
+                else
+                {
+                    qWarning().noquote() << "更新后无法恢复 VPN：原配置不存在或已发生变化。";
+                }
+            }
+            if (!updateError.isEmpty())
+                QMessageBox::warning(this, "更新失败", updateError);
+            else if (updatedVersion != QApplication::applicationVersion())
+                QMessageBox::warning(this, "更新未完成", "启动版本与更新版本不一致，请检查安装包。");
+            else
+                qInfo().noquote() << "已成功更新至版本 " + updatedVersion + "。";
         });
     }
 }
 
 void MainWindow::openUpdateDialog()
 {
-    UpdateDialog dialog([this]()
+    UpdateDialog dialog([this]() -> std::optional<QString>
     {
-        return !connectionSession->isActive() && !systemProxySession->isEnabled() && !systemProxySession->isBusy();
-    }, this);
+        if (systemProxySession->isBusy())
+        {
+            QEventLoop loop;
+            QTimer timeout;
+            timeout.setSingleShot(true);
+            connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+            connect(systemProxySession, &SystemProxySession::busyChanged, &loop,
+                    [&loop](bool busy) { if (!busy) loop.quit(); });
+            timeout.start(15000);
+            loop.exec();
+            if (systemProxySession->isBusy()) return std::nullopt;
+        }
+        if (!connectionSession->isActive()) return QString();
+        const QString id = connectionUiController->connectedProfileId();
+        const QString path = connectionUiController->connectedConfigPath();
+        if (path.isEmpty()) return std::nullopt;
+        return UpdateRestartState{id, path, !profileService->matchesManagedProfile(id, path),
+                                  systemProxySession->isEnabled()}.encode();
+    }, [this]() { gracefullyQuit(); }, this);
     QTimer::singleShot(0, &dialog, &UpdateDialog::checkForUpdates);
     dialog.exec();
 }
@@ -1225,6 +1270,10 @@ void MainWindow::gracefullyQuit()
         connect(connectionSession, &ConnectionSession::finished, qApp,
                 [](ZJU_ERROR) { QApplication::quit(); });
         connectionSession->stop();
+        QTimer::singleShot(3000, this, [this]()
+        {
+            if (connectionSession->isActive()) connectionSession->stop();
+        });
     }
     else
     {

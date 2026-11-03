@@ -52,6 +52,8 @@ void AuthDialogCoordinator::requestLogin(
     loginWindow->setDetail(username, password);
     connect(loginWindow, &LoginWindow::login, this,
             &AuthDialogCoordinator::loginSubmitted);
+    connect(loginWindow, &QDialog::rejected, this,
+            &AuthDialogCoordinator::connectionCredentialsCancelled);
     loginWindow->show();
 }
 
@@ -69,6 +71,8 @@ void AuthDialogCoordinator::requestPhoneNumber(
 
     auto *dialog = new QDialog(parentWidget);
     phoneNumberDialog = dialog;
+    connect(dialog, &QDialog::rejected, this,
+            &AuthDialogCoordinator::connectionCredentialsCancelled);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowModality(Qt::WindowModal);
     dialog->setWindowTitle("短信验证");

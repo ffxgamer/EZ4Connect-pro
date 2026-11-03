@@ -5,6 +5,7 @@ work=$1
 target=$2
 parent_pid=$3
 version=$4
+resume_token=${5:-}
 mountpoint="$work/mount"
 parent_dir=$(/usr/bin/dirname "$target")
 candidate="$parent_dir/.EZ4Connect-update-$parent_pid.app"
@@ -23,7 +24,11 @@ fail() {
             /bin/mv "$backup" "$target" || true
         fi
         /bin/rm -rf "$candidate"
-        /usr/bin/open -n "$target" --args --update-error "更新未完成，已尝试恢复原版本。" || true
+        if [ -n "$resume_token" ]; then
+            /usr/bin/open -n "$target" --args --update-error "更新未完成，已尝试恢复原版本。" "--resume-vpn=$resume_token" || true
+        else
+            /usr/bin/open -n "$target" --args --update-error "更新未完成，已尝试恢复原版本。" || true
+        fi
     fi
     /bin/rm -rf "$work"
     exit "$status"
@@ -56,6 +61,10 @@ mounted=0
 moved_old=1
 /bin/mv "$candidate" "$target"
 installed=1
-/usr/bin/open -n "$target" --args --update-complete "$version"
+if [ -n "$resume_token" ]; then
+    /usr/bin/open -n "$target" --args --update-complete "$version" "--resume-vpn=$resume_token"
+else
+    /usr/bin/open -n "$target" --args --update-complete "$version"
+fi
 /bin/rm -rf "$backup"
 moved_old=0

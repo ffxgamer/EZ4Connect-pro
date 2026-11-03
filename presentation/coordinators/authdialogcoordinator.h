@@ -37,6 +37,7 @@ public:
     void requestSsoLogin();
 
 signals:
+    void connectionCredentialsCancelled();
     void loginSubmitted(const QString &username, const QString &password, bool saveDetails);
     void phoneNumberSubmitted(
         const QString &countryCode,

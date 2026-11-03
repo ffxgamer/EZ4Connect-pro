@@ -32,6 +32,7 @@ public:
     bool removeCurrentAndSwitchToAnother();
     bool hasSelectedProfile() const;
     bool hasLegacyProfile() const;
+    bool matchesManagedProfile(const QString &id, const QString &path) const;
 
     QString normalizeProfileId(const QString &name) const;
     bool silentStartEnabled() const;

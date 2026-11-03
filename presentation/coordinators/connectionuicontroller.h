@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QSettings>
+#include <optional>
 #include <QSystemTrayIcon>
 
 #include <functional>
@@ -49,6 +50,9 @@ public:
     void profileSelectionChanged();
     bool selectedProfileIsConnected() const;
     QString connectedProfileName() const;
+    QString connectedProfileId() const;
+    QString connectedConfigPath() const;
+    void restoreProxyOnNextConnection(bool enabled);
 
 private:
     void handleConnectClicked();
@@ -75,6 +79,8 @@ private:
     NotificationHandler notificationHandler;
     std::unique_ptr<QSettings> activeSettings;
     QString activeProfileId;
+    std::optional<bool> restoreProxyAfterUpdate;
+    QString restoreProxyConfigPath;
     quint64 connectionGeneration = 0;
     bool switchingConnection = false;
     bool proxyClearAttempted = false;
