@@ -22,6 +22,10 @@
 #include <QTimer>
 
 #include "mainwindow.h"
+#ifdef Q_OS_MACOS
+#include "presentation/main/macosstatusitem.h"
+#include <QCursor>
+#endif
 
 #include "application/applicationlogger.h"
 #include "application/applicationconstants.h"
@@ -151,12 +155,25 @@ MainWindow::MainWindow(
     setWindowTitle(QApplication::applicationDisplayName());
     connect(ui->newProfileButton, &QToolButton::clicked, this, &MainWindow::createProfile);
     connect(ui->deleteProfileButton, &QToolButton::clicked, this, &MainWindow::deleteCurrentProfile);
+    connect(ui->renameProfileButton, &QToolButton::clicked, this, &MainWindow::renameCurrentProfile);
 
     updateVersionInfo();
     updateConnectionState(connectionSession->state());
 
     connect(connectionSession, &ConnectionSession::stateChanged, this,
             &MainWindow::updateConnectionState);
+#ifdef Q_OS_MACOS
+    connect(connectionSession, &ConnectionSession::trafficTotals, this, &MainWindow::updateTrafficTotals);
+    auto *trafficWatchdog = new QTimer(this);
+    connect(trafficWatchdog, &QTimer::timeout, this, [this]() {
+        if (trafficConnected && trafficLastSeen.isValid() && trafficLastSeen.elapsed() > 3500) {
+            trafficSampleTimer.invalidate();
+            trafficLastSeen.invalidate();
+            macStatusItem->update(true, QStringLiteral("--"), QStringLiteral("--"));
+        }
+    });
+    trafficWatchdog->start(1000);
+#endif
 
 
     // 文件-退出
@@ -351,6 +368,20 @@ MainWindow::MainWindow(
         this
     );
 
+    connect(connectionUiController, &ConnectionUiController::unexpectedDisconnection,
+            this, [this](const QString &message)
+    {
+        auto *notice = new QMessageBox(QMessageBox::Warning, QStringLiteral("VPN 已断开"),
+                                       message, QMessageBox::Ok, this);
+        notice->setAttribute(Qt::WA_DeleteOnClose);
+        notice->setWindowModality(Qt::NonModal);
+        showNormal();
+        notice->show();
+        notice->raise();
+        notice->activateWindow();
+        QApplication::alert(this);
+    });
+
     bool shouldConnect =
         settings->value("Common/ConnectAfterStart", false).toBool();
     if (qApp->arguments().contains("--connect"))
@@ -514,6 +545,11 @@ void MainWindow::applyColorScheme(Qt::ColorScheme scheme)
 
 void MainWindow::updateConnectionState(ConnectionState state)
 {
+#ifdef Q_OS_MACOS
+    const bool connected = state == ConnectionState::Running;
+    if (macStatusItem && (connected != trafficConnected || !trafficSampleTimer.isValid()))
+        resetTrafficStatus(connected);
+#endif
     QString propertyValue;
     QString title;
     QString detail;
@@ -550,7 +586,9 @@ void MainWindow::updateConnectionState(ConnectionState state)
     case ConnectionState::Interrupted:
         propertyValue = "failed";
         title = "连接已断开";
-        detail = "VPN 核心意外退出，请查看右侧日志。";
+        detail = connectionSession->error() == ZJU_ERROR::SERVER_SHUTDOWN
+            ? "服务器终止了 VPN 会话，请查看日志。"
+            : "VPN 连接意外断开，请查看右侧日志。";
         break;
     case ConnectionState::Failed:
         propertyValue = "failed";
@@ -636,7 +674,7 @@ void MainWindow::updateProfileSummary()
 
 void MainWindow::setupTrayIcon()
 {
-    // 系统托盘
+#ifndef Q_OS_MACOS
     trayIcon = new QSystemTrayIcon(this);
     trayIcon->setIcon(
         QIcon(QPixmap(":/resource/icon.png").scaled(512, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
@@ -647,15 +685,13 @@ void MainWindow::setupTrayIcon()
         case QSystemTrayIcon::Context:
             break;
         default:
-            if (isHidden())
-            {
-                show();
-            }
-            setWindowState(Qt::WindowState::WindowActive);
-            setFocus();
+            showMainWindow();
             break;
         }
     });
+#else
+    trayIcon = nullptr;
+#endif
 
     trayConnectAction = new QAction("连接服务器", this);
     trayProfileMenu = new QMenu("配置选择", this);
@@ -669,14 +705,71 @@ void MainWindow::setupTrayIcon()
     trayMenu->addAction(trayShowAction);
     trayMenu->addAction(trayCloseAction);
     connect(trayConnectAction, &QAction::triggered, this, [&]() { ui->pushButton1->click(); });
-    connect(trayShowAction, &QAction::triggered, this, [&]() {
-        show();
-        setWindowState(Qt::WindowState::WindowActive);
-        setFocus();
-    });
+    connect(trayShowAction, &QAction::triggered, this, &MainWindow::showMainWindow);
     connect(trayCloseAction, &QAction::triggered, this, &MainWindow::gracefullyQuit);
+#ifndef Q_OS_MACOS
     trayIcon->setContextMenu(trayMenu);
     trayIcon->show();
+#else
+    macStatusItem = new MacOSStatusItem([this]() {
+        trayMenu->popup(QCursor::pos());
+    }, [this]() { showMainWindow(); });
+    // Qt forwards Dock reopen events as forced ApplicationActive changes.
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+        if (state == Qt::ApplicationActive && isHidden() && !trayMenu->isVisible()
+            && !QApplication::activeModalWidget())
+            showMainWindow();
+    });
+#endif
+}
+
+#ifdef Q_OS_MACOS
+namespace {
+QString formatTrafficRate(double bytesPerSecond)
+{
+    static const char *units[] = {"B/s", "KB/s", "MB/s", "GB/s"};
+    int unit = 0;
+    while (bytesPerSecond >= 1024.0 && unit < 3) { bytesPerSecond /= 1024.0; ++unit; }
+    return QString::number(bytesPerSecond, 'f', unit && bytesPerSecond < 10.0 ? 1 : 0)
+        + QLatin1Char(' ') + QLatin1String(units[unit]);
+}
+}
+
+void MainWindow::resetTrafficStatus(bool connected)
+{
+    trafficConnected = connected;
+    trafficSampleTimer.invalidate();
+    trafficLastSeen.invalidate();
+    const QString value = connected ? QStringLiteral("--") : QStringLiteral("0 B/s");
+    macStatusItem->update(connected, value, value);
+}
+
+void MainWindow::updateTrafficTotals(quint64 received, quint64 sent)
+{
+    if (!trafficConnected) return;
+    trafficLastSeen.restart();
+    if (!trafficSampleTimer.isValid() || received < lastReceived || sent < lastSent) {
+        lastReceived = received;
+        lastSent = sent;
+        trafficSampleTimer.restart();
+        return;
+    }
+    const qint64 elapsed = trafficSampleTimer.elapsed();
+    if (elapsed <= 0) return;
+    const double scale = 1000.0 / double(elapsed);
+    macStatusItem->update(true, formatTrafficRate(double(received - lastReceived) * scale),
+                          formatTrafficRate(double(sent - lastSent) * scale));
+    lastReceived = received;
+    lastSent = sent;
+    trafficSampleTimer.restart();
+}
+#endif
+
+void MainWindow::showMainWindow()
+{
+    showNormal();
+    raise();
+    activateWindow();
 }
 
 void MainWindow::setupProfileMenu()
@@ -790,6 +883,7 @@ void MainWindow::refreshProfileMenu()
     renameProfileAction->setEnabled(currentProfileIsManaged);
     deleteProfileAction->setEnabled(currentProfileIsManaged);
     ui->deleteProfileButton->setEnabled(currentProfileIsManaged);
+    ui->renameProfileButton->setEnabled(currentProfileIsManaged);
     const bool hasProfile = profileService->hasSelectedProfile();
     ui->pushButton1->setEnabled(hasProfile);
     trayConnectAction->setEnabled(hasProfile);
@@ -1090,6 +1184,12 @@ void MainWindow::promptConfigurationGuide(
 
 void MainWindow::renameCurrentProfile()
 {
+    if (connectionSession != nullptr && connectionSession->isActive()
+        && connectionUiController->selectedProfileIsConnected())
+    {
+        QMessageBox::warning(this, "重命名失败", "请先断开当前 VPN，再重命名此配置。");
+        return;
+    }
     bool ok = false;
     QString name = QInputDialog::getText(this, "重命名配置", "请输入新配置名称：", QLineEdit::Normal, currentProfileId, &ok);
     if (!ok)
@@ -1107,12 +1207,6 @@ void MainWindow::renameCurrentProfile()
     {
         return;
     }
-    if (connectionSession != nullptr && connectionSession->isActive())
-    {
-        QMessageBox::warning(this, "重命名失败", "请先断开 VPN 连接，再重命名配置。");
-        return;
-    }
-
     if (settingWindow != nullptr)
     {
         settingWindow->close();
@@ -1125,10 +1219,10 @@ void MainWindow::renameCurrentProfile()
 
     currentProfileId = profileService->currentProfileId();
     settings = profileService->settings();
-    authenticationDialogs->setSettings(settings);
+    connectionUiController->profileSelectionChanged();
     updateVersionInfo();
     refreshProfileMenu();
-    clearLog();
+    if (!connectionSession->isActive()) clearLog();
     qInfo().noquote() << "当前配置已重命名为：" + currentProfileId;
 }
 
@@ -1229,6 +1323,10 @@ void MainWindow::updateVersionInfo()
 
 void MainWindow::showNotification(const QString &title, const QString &content, QSystemTrayIcon::MessageIcon icon)
 {
+#ifdef Q_OS_MACOS
+    Q_UNUSED(icon);
+    macStatusItem->notify(title, content);
+#else
     disconnect(trayIcon, &QSystemTrayIcon::messageClicked, nullptr, nullptr);
     trayIcon->showMessage(
         title,
@@ -1241,9 +1339,9 @@ void MainWindow::showNotification(const QString &title, const QString &content, 
     {
         disconnect(trayIcon, &QSystemTrayIcon::messageClicked, nullptr, nullptr);
 
-        show();
-        setWindowState(Qt::WindowState::WindowActive);
+        showMainWindow();
     });
+#endif
 }
 
 void MainWindow::cleanUpWhenQuit()
@@ -1283,6 +1381,10 @@ void MainWindow::gracefullyQuit()
 
 MainWindow::~MainWindow()
 {
+#ifdef Q_OS_MACOS
+    delete macStatusItem;
+    macStatusItem = nullptr;
+#endif
     delete coordinator;
     coordinator = nullptr;
 

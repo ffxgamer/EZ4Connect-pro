@@ -206,10 +206,45 @@ bool restoresProxyStateAfterUpdate()
     core->finish();
     return !session.isActive();
 }
+
+bool notifiesUnexpectedDisconnectButNotManualStop()
+{
+    QTemporaryDir directory;
+    QSettings settings(directory.filePath("vpn.ini"), QSettings::IniFormat);
+    configure(settings, "vpn.example", 11081);
+    QWidget window;
+    QPushButton connectButton, proxyButton;
+    QAction trayAction(&window);
+    auto *core = new FakeCoreProcess;
+    ConnectionSession session(core);
+    SystemProxySession proxy(std::make_unique<FakeProxyBackend>());
+    AuthDialogCoordinator auth(&window, &settings);
+    ApplicationLogger logger;
+    QString notification;
+    int shown = 0;
+    ConnectionUiController controller(&window, &connectButton, &proxyButton, &trayAction,
+        &session, &proxy, &auth, &logger, [&]() { return &settings; },
+        []() { return QStringLiteral("vpn"); },
+        [&](const QString &, const QString &message, QSystemTrayIcon::MessageIcon) { notification = message; });
+    QObject::connect(&controller, &ConnectionUiController::unexpectedDisconnection,
+                     [&](const QString &) { ++shown; });
+    connectButton.click();
+    connectButton.click();
+    core->finish();
+    if (shown || !notification.isEmpty()) return false;
+    connectButton.click();
+    core->finish(); // a clean process exit can still be an unexpected disconnect
+    if (shown != 1 || notification.isEmpty() || session.state() != ConnectionState::Interrupted) return false;
+    connectButton.click();
+    emit core->error(ZJU_ERROR::SERVER_SHUTDOWN);
+    core->finish();
+    return shown == 2 && notification.contains(QStringLiteral("服务器终止"));
+}
 }
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
-    return selectionKeepsConnectionUntilConnect() && restoresProxyStateAfterUpdate() ? 0 : 1;
+    return selectionKeepsConnectionUntilConnect() && restoresProxyStateAfterUpdate()
+        && notifiesUnexpectedDisconnectButNotManualStop() ? 0 : 1;
 }

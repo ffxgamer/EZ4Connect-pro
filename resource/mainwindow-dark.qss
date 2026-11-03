@@ -209,6 +209,6 @@ QScrollBar::handle:vertical:hover {
 QPushButton#profileSelectButton { color: #dfe8ed; background: transparent; }
 QPushButton#profileSelectButton:hover { background: #2b3b44; }
 QPushButton#profileSelectButton:checked { background: #243f4d; border-color: #54798b; color: #9fdcff; }
-QToolButton#newProfileButton, QToolButton#deleteProfileButton, QToolButton#profileEditButton { color: #bdcbd3; background: transparent; }
-QToolButton#newProfileButton:hover, QToolButton#deleteProfileButton:hover, QToolButton#profileEditButton:hover { background: #243f4d; }
-QToolButton#deleteProfileButton:disabled { color: #60717a; }
+QToolButton#newProfileButton, QToolButton#renameProfileButton, QToolButton#deleteProfileButton, QToolButton#profileEditButton { color: #bdcbd3; background: transparent; }
+QToolButton#newProfileButton:hover, QToolButton#renameProfileButton:hover, QToolButton#deleteProfileButton:hover, QToolButton#profileEditButton:hover { background: #243f4d; }
+QToolButton#renameProfileButton:disabled, QToolButton#deleteProfileButton:disabled { color: #60717a; }

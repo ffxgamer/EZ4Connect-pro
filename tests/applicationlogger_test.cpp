@@ -10,6 +10,19 @@ Q_LOGGING_CATEGORY(backgroundLog, "logger.background")
 
 namespace
 {
+bool redactsSessionSecrets()
+{
+    QStringList entries;
+    ApplicationLogger logger;
+    QObject::connect(&logger, &ApplicationLogger::entryAdded,
+                     [&entries](const QString &entry) { entries.append(entry); });
+    logger.appendCoreOutput("TWFID: abc123\nServer session ID: def456\nToken: xyz789\nTWFID has been authorized");
+    if (entries.size() != 1 || entries.first().contains("abc123")
+        || entries.first().contains("def456") || entries.first().contains("xyz789")
+        || !entries.first().contains("TWFID has been authorized")) return false;
+    return entries.first().count(QStringLiteral("[已隐藏]")) == 3;
+}
+
 bool publishesQtAndCoreEntries()
 {
     QStringList entries;
@@ -56,5 +69,5 @@ int main(int argc, char *argv[])
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationName("LoggerTest");
     QCoreApplication::setApplicationVersion("1.0");
-    return publishesQtAndCoreEntries() ? 0 : 1;
+    return publishesQtAndCoreEntries() && redactsSessionSecrets() ? 0 : 1;
 }

@@ -2,6 +2,7 @@
 #define CONNECTIONUICONTROLLER_H
 
 #include <QObject>
+#include <QElapsedTimer>
 #include <QSettings>
 #include <optional>
 #include <QSystemTrayIcon>
@@ -54,6 +55,9 @@ public:
     QString connectedConfigPath() const;
     void restoreProxyOnNextConnection(bool enabled);
 
+signals:
+    void unexpectedDisconnection(const QString &message);
+
 private:
     void handleConnectClicked();
     void handleProxyClicked();
@@ -81,6 +85,7 @@ private:
     QString activeProfileId;
     std::optional<bool> restoreProxyAfterUpdate;
     QString restoreProxyConfigPath;
+    QElapsedTimer reconnectNoticeTimer;
     quint64 connectionGeneration = 0;
     bool switchingConnection = false;
     bool proxyClearAttempted = false;

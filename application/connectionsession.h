@@ -22,11 +22,13 @@ public:
     void submitSudoPassword(const QString &password, bool remember);
 
     ConnectionState state() const;
+    ZJU_ERROR error() const;
     bool isActive() const;
 
 signals:
     void stateChanged(ConnectionState state);
     void outputRead(const QString &output);
+    void trafficTotals(quint64 received, quint64 sent);
     void graphCaptcha(const QString &graphFile);
     void smsCode(bool showSkipSecondaryAuthOption);
     void totpCode();

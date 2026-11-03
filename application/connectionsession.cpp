@@ -8,6 +8,7 @@ ConnectionSession::ConnectionSession(CoreProcess *coreProcess, QObject *parent)
     reconnectTimer.setSingleShot(true);
 
     connect(coreProcess, &CoreProcess::outputRead, this, &ConnectionSession::outputRead);
+    connect(coreProcess, &CoreProcess::trafficTotals, this, &ConnectionSession::trafficTotals);
     connect(coreProcess, &CoreProcess::graphCaptcha, this, &ConnectionSession::graphCaptcha);
     connect(coreProcess, &CoreProcess::smsCode, this, &ConnectionSession::smsCode);
     connect(coreProcess, &CoreProcess::totpCode, this, &ConnectionSession::totpCode);
@@ -106,6 +107,11 @@ void ConnectionSession::submitSudoPassword(const QString &password, bool remembe
 ConnectionState ConnectionSession::state() const
 {
     return sessionState.state();
+}
+
+ZJU_ERROR ConnectionSession::error() const
+{
+    return sessionState.error();
 }
 
 bool ConnectionSession::isActive() const

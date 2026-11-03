@@ -116,7 +116,15 @@ ConnectionUiController::ConnectionUiController(
         connectionSession,
         &ConnectionSession::reconnectScheduled,
         this,
-        [](int) { qInfo().noquote() << "正在尝试重新连接..."; }
+        [this](int)
+        {
+            qInfo().noquote() << "正在尝试重新连接...";
+            if (!reconnectNoticeTimer.isValid() || reconnectNoticeTimer.elapsed() >= 60000)
+            {
+                this->notificationHandler("VPN 连接中断", "正在尝试自动重新连接。", QSystemTrayIcon::MessageIcon::Warning);
+                reconnectNoticeTimer.restart();
+            }
+        }
     );
     connect(
         connectionSession,
@@ -125,13 +133,13 @@ ConnectionUiController::ConnectionUiController(
         [this](ZJU_ERROR error)
         {
             qInfo().noquote() << "VPN 断开！";
-            if (error != ZJU_ERROR::NONE)
+            if (this->connectionSession->state() == ConnectionState::Interrupted)
             {
-                this->notificationHandler(
-                    "VPN",
-                    "VPN 意外断开！",
-                    QSystemTrayIcon::MessageIcon::Warning
-                );
+                const QString message = error == ZJU_ERROR::SERVER_SHUTDOWN
+                    ? QStringLiteral("服务器终止了 VPN 会话。请检查网络或登录状态，然后重新连接。")
+                    : QStringLiteral("VPN 连接意外断开。请查看日志并重新连接。");
+                this->notificationHandler("VPN 已断开", message, QSystemTrayIcon::MessageIcon::Warning);
+                emit unexpectedDisconnection(message);
             }
             this->authenticationDialogs->setSettings(settings());
             activeSettings.reset();
@@ -395,7 +403,8 @@ void ConnectionUiController::handleProxyClicked()
                     QMessageBox::Warning,
                     "警告",
                     "当前已存在系统代理配置（可能是 Clash 或其它代理软件）\n"
-                    "是否覆盖当前系统代理配置？",
+                    "启用后会覆盖现有代理，关闭时不会自动恢复。\n"
+                    "是否继续？",
                     QMessageBox::Yes | QMessageBox::No,
                     parentWidget
                 );
@@ -512,6 +521,9 @@ void ConnectionUiController::showConnectionError(ZJU_ERROR error)
         break;
     case ZJU_ERROR::AUTH_EXPIRED:
         message = "认证已过期！\n请重新登录。";
+        break;
+    case ZJU_ERROR::SERVER_SHUTDOWN:
+        message = "服务器终止了 VPN 会话，请检查网络或登录状态。";
         break;
     case ZJU_ERROR::OTHER:
         message = "其它错误！\n未知原因，可将日志反馈给开发者以便调查。";

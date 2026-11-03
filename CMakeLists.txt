@@ -94,6 +94,9 @@ if (WIN32)
     set(PLATFORM_LIBS wininet rasapi32 shell32)
 elseif(APPLE)
     message("Building for MacOS")
+    enable_language(OBJCXX)
+    list(APPEND SOURCE_FILES presentation/main/macosstatusitem.mm)
+    set(PLATFORM_LIBS "-framework AppKit")
     
     set(MACOSX_BUNDLE_ICON_FILE icon.icns)
     

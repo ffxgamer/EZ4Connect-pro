@@ -76,8 +76,17 @@ void ZjuConnectProcess::processOutputLines(const QList<QByteArray> &lines)
     outputLines.reserve(lines.size());
     for (const QByteArray &line : lines)
     {
+        quint64 received = 0;
+        quint64 sent = 0;
+        if (CoreOutputParser::trafficTotals(line, received, sent))
+        {
+            emit trafficTotals(received, sent);
+            continue;
+        }
         outputLines.append(ConsoleOutputDecoder::decode(line));
     }
+
+    if (outputLines.isEmpty()) return;
 
     const QString output = outputLines.join('\n');
     emit outputRead(output);
@@ -139,6 +148,9 @@ void ZjuConnectProcess::processOutputLines(const QList<QByteArray> &lines)
             break;
         case CoreOutputEvent::AuthExpired:
             emit error(ZJU_ERROR::AUTH_EXPIRED);
+            break;
+        case CoreOutputEvent::ServerShutdown:
+            emit error(ZJU_ERROR::SERVER_SHUTDOWN);
             break;
         case CoreOutputEvent::ClientFailed:
             emit error(ZJU_ERROR::CLIENT_FAILED);

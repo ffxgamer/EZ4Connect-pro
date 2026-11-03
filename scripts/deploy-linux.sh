@@ -54,10 +54,15 @@ if [ "$NIGHTLY" = "true" ]; then
     ZJU_RELEASE_PATH="download/nightly"
 fi
 
-wget -O "zju-connect-linux-$ZJU_ARCH.zip" "https://github.com/Mythologyli/zju-connect/releases/$ZJU_RELEASE_PATH/zju-connect-linux-$ZJU_ARCH.zip"
-unzip -o "zju-connect-linux-$ZJU_ARCH.zip"
-cp zju-connect AppDir/usr/bin/
-rm "zju-connect-linux-$ZJU_ARCH.zip"
+if [ -n "${ZJU_CORE_PATH:-}" ]; then
+    cp "$ZJU_CORE_PATH" AppDir/usr/bin/zju-connect
+    chmod +x AppDir/usr/bin/zju-connect
+else
+    wget -O "zju-connect-linux-$ZJU_ARCH.zip" "https://github.com/Mythologyli/zju-connect/releases/$ZJU_RELEASE_PATH/zju-connect-linux-$ZJU_ARCH.zip"
+    unzip -o "zju-connect-linux-$ZJU_ARCH.zip"
+    cp zju-connect AppDir/usr/bin/
+    rm "zju-connect-linux-$ZJU_ARCH.zip"
+fi
 
 # Copy icon
 cp resource/icon.png "AppDir/usr/share/icons/hicolor/scalable/apps/$TARGET_NAME.png"

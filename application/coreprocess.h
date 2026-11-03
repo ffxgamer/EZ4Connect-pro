@@ -24,6 +24,7 @@ public:
 signals:
     void error(ZJU_ERROR error);
     void outputRead(const QString &output);
+    void trafficTotals(quint64 received, quint64 sent);
     void graphCaptcha(const QString &graphFile);
     void smsCode(bool showSkipSecondaryAuthOption);
     void totpCode();

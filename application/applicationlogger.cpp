@@ -5,6 +5,7 @@
 #include <QIODevice>
 #include <QMetaObject>
 #include <QRecursiveMutex>
+#include <QRegularExpression>
 #include <QThread>
 
 #include <cstdio>
@@ -99,8 +100,12 @@ void ApplicationLogger::appendCoreOutput(const QString &output)
     }
 
     QStringList lines = output.split('\n', Qt::KeepEmptyParts);
+    static const QRegularExpression sensitiveValue(
+        QStringLiteral(R"((\b(?:TWFID|Token|Server session ID)\s*:\s*)\S+)"),
+        QRegularExpression::CaseInsensitiveOption);
     for (QString &line : lines)
     {
+        line.replace(sensitiveValue, QStringLiteral("\\1[已隐藏]"));
         line.prepend("[CORE] ");
     }
     publishEntry(lines.join('\n'));

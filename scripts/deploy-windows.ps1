@@ -6,10 +6,13 @@ param(
     [string]$DisplayName = "EZ4Connect",
     [string]$BuildDir = "build",
     [string]$Architecture = "amd64",
-    [string]$Nightly = "false"
+    [string]$Nightly = "false",
+    [string]$CorePath = ""
 )
 
 Import-Module -Name Microsoft.PowerShell.Utility
+
+if ($CorePath) { $CorePath = (Resolve-Path $CorePath).Path }
 
 # Create output directory
 New-Item -ItemType Directory -Path "$DisplayName" -Force
@@ -21,13 +24,17 @@ Copy-Item -Path "../$BuildDir/Release/$TargetName.exe" -Destination .
 # Run windeployqt
 & windeployqt.exe "$TargetName.exe"
 
-# Download and extract zju-connect
-$ZjuReleasePath = if ($Nightly -eq "true") { "download/nightly" } else { "latest/download" }
-$ZjuUrl = "https://github.com/Mythologyli/zju-connect/releases/$ZjuReleasePath/zju-connect-windows-$Architecture.zip"
-$ZjuZipPath = "zju-connect-windows-$Architecture.zip"
-Invoke-WebRequest -Uri $ZjuUrl -OutFile $ZjuZipPath
-Expand-Archive -Path $ZjuZipPath -DestinationPath . -Force
-Remove-Item -Path $ZjuZipPath
+# Use the patched core supplied by the release build, or download the upstream core.
+if ($CorePath) {
+    Copy-Item -Path $CorePath -Destination "zju-connect.exe"
+} else {
+    $ZjuReleasePath = if ($Nightly -eq "true") { "download/nightly" } else { "latest/download" }
+    $ZjuUrl = "https://github.com/Mythologyli/zju-connect/releases/$ZjuReleasePath/zju-connect-windows-$Architecture.zip"
+    $ZjuZipPath = "zju-connect-windows-$Architecture.zip"
+    Invoke-WebRequest -Uri $ZjuUrl -OutFile $ZjuZipPath
+    Expand-Archive -Path $ZjuZipPath -DestinationPath . -Force
+    Remove-Item -Path $ZjuZipPath
+}
 
 # Copy additional files
 Copy-Item -Path "../libs/wintun/bin/$Architecture/wintun.dll" -Destination .

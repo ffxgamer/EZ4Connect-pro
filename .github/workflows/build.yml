@@ -36,8 +36,45 @@ jobs:
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
 
-  build-windows-x64:
+  # This pinned core carries a local fix for a shutdown race in v1.3.1.
+  build-vpn-core:
     needs: metadata
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Mythologyli/zju-connect
+          ref: 5d7f5b11fcf231f72a0ec0d888bf0f2eadcce1da
+          path: zju-core
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: zju-core/go.mod
+          cache-dependency-path: zju-core/go.sum
+      - name: Apply core shutdown fix
+        run: git -C zju-core apply "$GITHUB_WORKSPACE/patches/zju-connect-v1.3.1-shutdown.patch"
+      - name: Build VPN cores
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/vpn-core"
+          cd zju-core
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            suffix=""
+            if [[ "$os" == windows ]]; then suffix=".exe"; fi
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
+              -ldflags='-s -w -buildid= -X main.zjuConnectVersion=v1.3.1-hotfix-pro' \
+              -o "$GITHUB_WORKSPACE/vpn-core/zju-connect-$os-$arch$suffix" .
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vpn-core
+          path: vpn-core/*
+          if-no-files-found: error
+
+  build-windows-x64:
+    needs: [metadata, build-vpn-core]
     runs-on: windows-latest
     env:
       ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-windows-x64
@@ -66,10 +103,15 @@ jobs:
         run: |
           cmake --build build --target ${{ env.TARGET_NAME }} --config Release --parallel $(nproc)
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: vpn-core
+          path: vpn-core
+
       - name: Download and copy files
         shell: pwsh
         run: |
-          .\scripts\deploy-windows.ps1 -TargetName "${{ env.TARGET_NAME }}" -DisplayName "${{ env.DISPLAY_NAME }}" -BuildDir "build" -Architecture "amd64" -Nightly false
+          .\scripts\deploy-windows.ps1 -TargetName "${{ env.TARGET_NAME }}" -DisplayName "${{ env.DISPLAY_NAME }}" -BuildDir "build" -Architecture "amd64" -Nightly false -CorePath "vpn-core/zju-connect-windows-amd64.exe"
           Compress-Archive -Path "${{ env.DISPLAY_NAME }}" -DestinationPath ${{ env.ARCHIVE_NAME }}.zip
 
       - name: Upload artifact
@@ -79,7 +121,7 @@ jobs:
           path: ${{ env.ARCHIVE_NAME }}.zip
 
   build-windows-arm64:
-    needs: metadata
+    needs: [metadata, build-vpn-core]
     runs-on: windows-11-arm
     env:
       ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-windows-arm64
@@ -109,10 +151,15 @@ jobs:
         run: |
           cmake --build build --target ${{ env.TARGET_NAME }} --config Release --parallel $(nproc)
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: vpn-core
+          path: vpn-core
+
       - name: Download and copy files
         shell: pwsh
         run: |
-          .\scripts\deploy-windows.ps1 -TargetName "${{ env.TARGET_NAME }}" -DisplayName "${{ env.DISPLAY_NAME }}" -BuildDir "build" -Architecture "arm64" -Nightly false
+          .\scripts\deploy-windows.ps1 -TargetName "${{ env.TARGET_NAME }}" -DisplayName "${{ env.DISPLAY_NAME }}" -BuildDir "build" -Architecture "arm64" -Nightly false -CorePath "vpn-core/zju-connect-windows-arm64.exe"
           Compress-Archive -Path "${{ env.DISPLAY_NAME }}" -DestinationPath ${{ env.ARCHIVE_NAME }}.zip
 
       - name: Upload artifact
@@ -121,128 +168,8 @@ jobs:
           name: ${{ env.ARCHIVE_NAME }}
           path: ${{ env.ARCHIVE_NAME }}.zip
 
-  build-macos-x64:
-    needs: metadata
-    runs-on: macos-15-intel
-    env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-macos-x64
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          host: 'mac'
-          target: 'desktop'
-          arch: 'clang_64'
-          modules: 'qt5compat qtpositioning qtwebchannel qtwebengine'
-          cache: 'true'
-          cache-key-prefix: 'install-qt-action-macos_clang_x64'
-
-      - name: Configure
-        env:
-          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
-        run: |
-          cmake -DNIGHTLY_BUILD=OFF -DREL_VER="${RELEASE_VERSION#v}" -DCMAKE_OSX_ARCHITECTURES="x86_64" -S . -B build
-
-      - name: Build
-        run: |
-          cmake --build build --target ${{ env.TARGET_NAME }} --parallel $(nproc)
-
-      - name: Download and copy files
-        run: |
-          ./scripts/deploy-macos.sh "${{ env.TARGET_NAME }}" "build" "x86_64" "false"
-
-      - name: Check macOS signing configuration
-        id: signing
-        env:
-          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-          MACOS_CERT_IDENTITY: ${{ secrets.MACOS_CERT_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -euo pipefail
-          count=0
-          for name in MACOS_CERT_P12 MACOS_CERT_PASSWORD MACOS_CERT_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            if [[ -n "${!name}" ]]; then count=$((count + 1)); fi
-          done
-          if [[ "$count" == 0 ]]; then
-            echo 'enabled=false' >> "$GITHUB_OUTPUT"
-            echo 'No signing secrets configured; the macOS DMG will be unsigned and not notarized.'
-          elif [[ "$count" == 6 ]]; then
-            echo 'enabled=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'Configure all six macOS signing and notarization secrets, or none.' >&2
-            exit 1
-          fi
-
-      - name: Import macOS signing certificate
-        if: steps.signing.outputs.enabled == 'true'
-        env:
-          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-keychain
-        run: |
-          CERTIFICATE_PATH="$RUNNER_TEMP/macos_signing_certificate.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/macos-signing.keychain-db"
-          echo "$MACOS_CERT_P12" | base64 --decode > "$CERTIFICATE_PATH" || echo "$MACOS_CERT_P12" | base64 -D > "$CERTIFICATE_PATH"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
-
-      - name: Sign app bundle
-        if: steps.signing.outputs.enabled == 'true'
-        env:
-          CODESIGN_IDENTITY: ${{ secrets.MACOS_CERT_IDENTITY }}
-        run: |
-          ./scripts/macos-sign-app.sh "./${{ env.TARGET_NAME }}.app"
-
-      - name: Sign app bundle locally
-        if: steps.signing.outputs.enabled != 'true'
-        run: |
-          codesign --force --deep --sign - --preserve-metadata=entitlements "./${{ env.TARGET_NAME }}.app"
-
-      - name: Verify app signature
-        run: |
-          codesign --verify --deep --strict "./${{ env.TARGET_NAME }}.app"
-
-      - name: Package dmg file
-        run: |
-          brew install create-dmg
-          swift scripts/dmg-background.swift "$RUNNER_TEMP/dmg-background.png"
-          mkdir dmg-build
-          create-dmg \
-            --volname "${{ env.DISPLAY_NAME }}" \
-            --volicon ./resource/icon.icns \
-            --background "$RUNNER_TEMP/dmg-background.png" \
-            --window-size 680 420 \
-            --app-drop-link 470 145 \
-            --add-file "${{ env.DISPLAY_NAME }}.app" "./${{ env.TARGET_NAME }}.app" 210 145 \
-            --filesystem APFS \
-            ${{ env.ARCHIVE_NAME }}.dmg dmg-build
-
-      - name: Notarize and staple dmg
-        if: steps.signing.outputs.enabled == 'true'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          ./scripts/macos-notarize-dmg.sh "${{ env.ARCHIVE_NAME }}.dmg"
-
-      - name: Upload artifact (dmg)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARCHIVE_NAME }}
-          path: ${{ env.ARCHIVE_NAME }}.dmg
   build-macos-arm64:
-    needs: metadata
+    needs: [metadata, build-vpn-core]
     runs-on: macos-15-intel
     env:
       ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-macos-arm64
@@ -270,7 +197,14 @@ jobs:
         run: |
           cmake --build build --target ${{ env.TARGET_NAME }} --parallel $(nproc)
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: vpn-core
+          path: vpn-core
+
       - name: Download and copy files
+        env:
+          ZJU_CORE_PATH: ${{ github.workspace }}/vpn-core/zju-connect-darwin-arm64
         run: |
           ./scripts/deploy-macos.sh "${{ env.TARGET_NAME }}" "build" "arm64" "false"
 
@@ -342,8 +276,10 @@ jobs:
             --volicon ./resource/icon.icns \
             --background "$RUNNER_TEMP/dmg-background.png" \
             --window-size 680 420 \
-            --app-drop-link 470 145 \
-            --add-file "${{ env.DISPLAY_NAME }}.app" "./${{ env.TARGET_NAME }}.app" 210 145 \
+            --icon-size 96 \
+            --app-drop-link 535 155 \
+            --add-file "${{ env.DISPLAY_NAME }}.app" "./${{ env.TARGET_NAME }}.app" 145 155 \
+            --add-file "首次打开说明.txt" ./resource/macos-install-guide.txt 340 155 \
             --filesystem APFS \
             ${{ env.ARCHIVE_NAME }}.dmg dmg-build
 
@@ -362,7 +298,7 @@ jobs:
           name: ${{ env.ARCHIVE_NAME }}
           path: ${{ env.ARCHIVE_NAME }}.dmg
   build-linux-x64:
-    needs: metadata
+    needs: [metadata, build-vpn-core]
     runs-on: ubuntu-22.04
     env:
       ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-linux-x64
@@ -390,7 +326,14 @@ jobs:
         run: |
           cmake --build build --target ${{ env.TARGET_NAME }} --parallel $(nproc)
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: vpn-core
+          path: vpn-core
+
       - name: Download and copy files
+        env:
+          ZJU_CORE_PATH: ${{ github.workspace }}/vpn-core/zju-connect-linux-amd64
         run: |
           ./scripts/deploy-linux.sh "${{ env.TARGET_NAME }}" "${{ env.DISPLAY_NAME }}" "build" "x86_64" "false"
           mv *.AppImage ${{ env.ARCHIVE_NAME }}.AppImage
@@ -402,7 +345,7 @@ jobs:
           path: ${{ env.ARCHIVE_NAME }}.AppImage
 
   build-linux-arm64:
-    needs: metadata
+    needs: [metadata, build-vpn-core]
     runs-on: ubuntu-24.04-arm
     env:
       ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ needs.metadata.outputs.version }}-linux-arm64
@@ -435,7 +378,14 @@ jobs:
         run: |
           cmake --build build --target ${{ env.TARGET_NAME }} --parallel $(nproc)
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: vpn-core
+          path: vpn-core
+
       - name: Download and copy files
+        env:
+          ZJU_CORE_PATH: ${{ github.workspace }}/vpn-core/zju-connect-linux-arm64
         run: |
           ./scripts/deploy-linux.sh "${{ env.TARGET_NAME }}" "${{ env.DISPLAY_NAME }}" "build" "arm64" "false"
           mv *.AppImage ${{ env.ARCHIVE_NAME }}.AppImage
@@ -451,7 +401,6 @@ jobs:
       - metadata
       - build-windows-x64
       - build-windows-arm64
-      - build-macos-x64
       - build-macos-arm64
       - build-linux-x64
       - build-linux-arm64
@@ -477,7 +426,6 @@ jobs:
           assets=(
             "release-assets/$PREFIX-windows-x64.zip"
             "release-assets/$PREFIX-windows-arm64.zip"
-            "release-assets/$PREFIX-macos-x64.dmg"
             "release-assets/$PREFIX-macos-arm64.dmg"
             "release-assets/$PREFIX-linux-x64.AppImage"
             "release-assets/$PREFIX-linux-arm64.AppImage"

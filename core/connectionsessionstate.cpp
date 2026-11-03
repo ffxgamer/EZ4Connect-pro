@@ -110,5 +110,6 @@ void ConnectionSessionState::beginReconnect()
 
 bool ConnectionSessionState::isReconnectable(ZJU_ERROR error)
 {
-    return error == ZJU_ERROR::AUTH_EXPIRED || error == ZJU_ERROR::OTHER;
+    return error == ZJU_ERROR::AUTH_EXPIRED || error == ZJU_ERROR::SERVER_SHUTDOWN
+        || error == ZJU_ERROR::OTHER;
 }

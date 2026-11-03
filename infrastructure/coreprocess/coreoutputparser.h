@@ -25,6 +25,7 @@ enum class CoreOutputEvent
     InteractiveError,
     AuthNotAvailable,
     AuthExpired,
+    ServerShutdown,
     ClientFailed,
     CorePanic,
 };
@@ -33,6 +34,8 @@ class CoreOutputParser
 {
 public:
     static CoreOutputEvent parse(const QString &output);
+
+    static bool trafficTotals(const QByteArray &line, quint64 &received, quint64 &sent);
 
     static bool hasInteractivePrompt(const QByteArray &output);
 

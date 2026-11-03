@@ -158,6 +158,7 @@ QPushButton#profileSelectButton {
 }
 
 QToolButton#newProfileButton,
+QToolButton#renameProfileButton,
 QToolButton#deleteProfileButton,
 QToolButton#profileEditButton {
     border: 1px solid transparent;

@@ -34,6 +34,7 @@ bool recognizesCoreProtocol()
         {"auth type/login domain combination not found", CoreOutputEvent::AuthNotAvailable},
         {"invalid SID", CoreOutputEvent::AuthExpired},
         {"l3-tunnel tunnel auth failed:", CoreOutputEvent::AuthExpired},
+        {"SendConn: server returned SHUTDOWN (cmd 0x08); session terminated by server", CoreOutputEvent::ServerShutdown},
         {"client setup error", CoreOutputEvent::ClientFailed},
         {"panic: runtime error", CoreOutputEvent::CorePanic},
         {"ordinary core output", CoreOutputEvent::None},
@@ -94,6 +95,17 @@ bool extractsGraphCaptchaFileFromCoreOutput()
            ) == "C:\\Users\\alice\\graph_code.jpg"
         && CoreOutputParser::graphCaptchaFile("ordinary output").isEmpty();
 }
+
+bool parsesTrafficTotals()
+{
+    quint64 received = 0, sent = 0;
+    return CoreOutputParser::trafficTotals("EZ4PRO_TRAFFIC 123 456", received, sent)
+        && received == 123 && sent == 456
+        && !CoreOutputParser::trafficTotals("EZ4PRO_TRAFFIC -1 2", received, sent)
+        && !CoreOutputParser::trafficTotals("EZ4PRO_TRAFFIC 1 2 3", received, sent)
+        && !CoreOutputParser::trafficTotals("EZ4PRO_TRAFFIC 18446744073709551616 2", received, sent)
+        && !CoreOutputParser::trafficTotals("normal log", received, sent);
+}
 }
 
 int main(int argc, char *argv[])
@@ -103,6 +115,7 @@ int main(int argc, char *argv[])
                && preservesExistingFirstMatchPrecedence()
                && recognizesInteractivePromptsBeforeNewline()
                && extractsGraphCaptchaFileFromCoreOutput()
+               && parsesTrafficTotals()
            ? 0
            : 1;
 }

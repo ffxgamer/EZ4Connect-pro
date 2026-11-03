@@ -299,6 +299,13 @@
             <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
            </spacer></item>
            <item>
+            <widget class="QToolButton" name="renameProfileButton">
+             <property name="toolTip"><string>重命名当前 VPN 配置</string></property>
+             <property name="accessibleName"><string>重命名当前 VPN 配置</string></property>
+             <property name="text"><string>重命名</string></property>
+            </widget>
+           </item>
+           <item>
             <widget class="QToolButton" name="deleteProfileButton">
              <property name="toolTip"><string>删除当前 VPN 配置</string></property>
              <property name="accessibleName"><string>删除当前 VPN 配置</string></property>

@@ -17,10 +17,8 @@ func draw(_ text: String, y: CGFloat, size: CGFloat, font: NSFont, color: NSColo
 
 draw("将 EZ4Connect Pro 拖入“应用程序”", y: 378, size: 24,
      font: NSFont.systemFont(ofSize: 16, weight: .medium), color: .darkGray)
-draw("首次打开如被系统拦截，可在终端执行：", y: 112, size: 20,
+draw("如无法打开，请双击“首次打开说明”复制解决方法", y: 347, size: 22,
      font: NSFont.systemFont(ofSize: 13), color: .darkGray)
-draw("xattr -dr com.apple.quarantine \"/Applications/EZ4Connect Pro.app\"", y: 84, size: 20,
-     font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), color: .black)
 image.unlockFocus()
 guard CommandLine.arguments.count == 2,
       let tiff = image.tiffRepresentation,

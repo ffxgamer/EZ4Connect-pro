@@ -24,12 +24,15 @@ if [ "$NIGHTLY" = "true" ]; then
     ZJU_RELEASE_PATH="download/nightly"
 fi
 
-curl -LO "https://github.com/Mythologyli/zju-connect/releases/$ZJU_RELEASE_PATH/zju-connect-darwin-$ZJU_ARCH.zip"
-unzip -o "zju-connect-darwin-$ZJU_ARCH.zip"
-rm "zju-connect-darwin-$ZJU_ARCH.zip"
-
-# Copy zju-connect into app bundle
-cp zju-connect "$APP_PATH/Contents/MacOS/"
+if [ -n "${ZJU_CORE_PATH:-}" ]; then
+    cp "$ZJU_CORE_PATH" "$APP_PATH/Contents/MacOS/zju-connect"
+    chmod +x "$APP_PATH/Contents/MacOS/zju-connect"
+else
+    curl -fLO "https://github.com/Mythologyli/zju-connect/releases/$ZJU_RELEASE_PATH/zju-connect-darwin-$ZJU_ARCH.zip"
+    unzip -o "zju-connect-darwin-$ZJU_ARCH.zip"
+    rm "zju-connect-darwin-$ZJU_ARCH.zip"
+    cp zju-connect "$APP_PATH/Contents/MacOS/"
+fi
 
 # Run macdeployqt
 macdeployqt "$APP_PATH"

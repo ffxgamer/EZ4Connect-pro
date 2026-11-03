@@ -1,0 +1,353 @@
+diff --git a/client/easyconnect/l3conn.go b/client/easyconnect/l3conn.go
+index 7d1a105..2d208a9 100644
+--- a/client/easyconnect/l3conn.go
++++ b/client/easyconnect/l3conn.go
+@@ -10,29 +10,38 @@ import (
+ type L3Conn struct {
+ 	easyConnectClient *Client
+ 
+-	sendConn     io.WriteCloser
+-	sendLock     sync.Mutex
+-	sendErrCount int
++	sendConn        io.WriteCloser
++	sendLock        sync.Mutex
++	sendErrCount    int
++	sendTerminalErr error
+ 
+-	recvConn     io.ReadCloser
+-	recvLock     sync.Mutex
+-	recvErrCount int
++	recvConn        io.ReadCloser
++	recvLock        sync.Mutex
++	recvErrCount    int
++	recvTerminalErr error
+ }
+ 
+ // try best to read, if return err!=nil, please panic
+ func (c *L3Conn) Read(p []byte) (n int, err error) {
+ 	c.recvLock.Lock()
+ 	defer c.recvLock.Unlock()
++	if c.recvTerminalErr != nil {
++		return 0, c.recvTerminalErr
++	}
+ 	for n, err = c.recvConn.Read(p); err != nil && c.recvErrCount < 5; {
+ 
+ 		log.Printf("Error occurred while receiving, retrying: %v", err)
+ 
+ 		// Do handshake again and create a new recvConn
+ 		_ = c.recvConn.Close()
+-		c.recvConn, err = c.easyConnectClient.RecvConn()
+-		if err != nil {
+-			return 0, err
++		nextConn, reconnectErr := c.easyConnectClient.RecvConn()
++		if reconnectErr != nil {
++			c.recvConn = nil
++			c.recvTerminalErr = reconnectErr
++			return 0, reconnectErr
+ 		}
++		c.recvConn = nextConn
++		err = nil
+ 		c.recvErrCount++
+ 		if c.recvErrCount >= 5 {
+ 			return 0, err
+@@ -45,15 +54,22 @@ func (c *L3Conn) Read(p []byte) (n int, err error) {
+ func (c *L3Conn) Write(p []byte) (n int, err error) {
+ 	c.sendLock.Lock()
+ 	defer c.sendLock.Unlock()
++	if c.sendTerminalErr != nil {
++		return 0, c.sendTerminalErr
++	}
+ 	for n, err = c.sendConn.Write(p); err != nil && c.sendErrCount < 5; {
+ 		log.Printf("Error occurred while sending, retrying: %v", err)
+ 
+ 		// Do handshake again and create a new sendConn
+ 		_ = c.sendConn.Close()
+-		c.sendConn, err = c.easyConnectClient.SendConn()
+-		if err != nil {
+-			return 0, err
++		nextConn, reconnectErr := c.easyConnectClient.SendConn()
++		if reconnectErr != nil {
++			c.sendConn = nil
++			c.sendTerminalErr = reconnectErr
++			return 0, reconnectErr
+ 		}
++		c.sendConn = nextConn
++		err = nil
+ 		c.sendErrCount++
+ 		if c.sendErrCount >= 5 {
+ 			return 0, err
+diff --git a/client/easyconnect/l3conn_terminal_test.go b/client/easyconnect/l3conn_terminal_test.go
+new file mode 100644
+index 0000000..37336e2
+--- /dev/null
++++ b/client/easyconnect/l3conn_terminal_test.go
+@@ -0,0 +1,31 @@
++package easyconnect
++
++import (
++	"io"
++	"strings"
++	"testing"
++)
++
++type brokenL3Transport struct{}
++
++func (brokenL3Transport) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
++func (brokenL3Transport) Read([]byte) (int, error)  { return 0, io.EOF }
++func (brokenL3Transport) Close() error              { return nil }
++
++// SendConn and RecvConn return a typed nil pointer and an error when no token is
++// available, just as they do when the server shuts down a session. A second
++// concurrent packet must report the error instead of calling a nil UConn.
++func TestL3ConnReturnsTerminalReconnectErrors(t *testing.T) {
++	conn := &L3Conn{easyConnectClient: &Client{}, sendConn: brokenL3Transport{}, recvConn: brokenL3Transport{}}
++	for i := 0; i < 3; i++ {
++		if _, err := conn.Write([]byte("packet")); err == nil || !strings.Contains(err.Error(), "token is nil") {
++			t.Fatalf("Write #%d returned %v", i, err)
++		}
++		if _, err := conn.Read(make([]byte, 1)); err == nil || !strings.Contains(err.Error(), "token is nil") {
++			t.Fatalf("Read #%d returned %v", i, err)
++		}
++	}
++	if err := conn.Close(); err != nil {
++		t.Fatal(err)
++	}
++}
+diff --git a/client/traffic.go b/client/traffic.go
+new file mode 100644
+index 0000000..1eb1f32
+--- /dev/null
++++ b/client/traffic.go
+@@ -0,0 +1,67 @@
++package client
++
++import (
++	"context"
++	"io"
++	"net"
++	"sync/atomic"
++)
++
++// TrafficClient counts VPN payload transferred through the stack, not host-wide traffic.
++type TrafficClient struct {
++	Client
++	received atomic.Uint64
++	sent     atomic.Uint64
++}
++
++func NewTrafficClient(c Client) *TrafficClient    { return &TrafficClient{Client: c} }
++func (c *TrafficClient) Totals() (uint64, uint64) { return c.received.Load(), c.sent.Load() }
++func (c *TrafficClient) SetIPUpdateHandler(handler func(net.IP) error) {
++	RegisterIPUpdateHandler(c.Client, handler)
++}
++func (c *TrafficClient) NewL3Conn() (io.ReadWriteCloser, error) {
++	conn, err := c.Client.NewL3Conn()
++	if err != nil {
++		return nil, err
++	}
++	return &trafficReadWriteCloser{ReadWriteCloser: conn, client: c}, nil
++}
++func (c *TrafficClient) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, error) {
++	conn, err := c.Client.DialTCP(ctx, addr)
++	if err != nil {
++		return nil, err
++	}
++	return &trafficNetConn{Conn: conn, client: c}, nil
++}
++
++type trafficReadWriteCloser struct {
++	io.ReadWriteCloser
++	client *TrafficClient
++}
++
++func (c *trafficReadWriteCloser) Read(p []byte) (int, error) {
++	n, err := c.ReadWriteCloser.Read(p)
++	c.client.received.Add(uint64(n))
++	return n, err
++}
++func (c *trafficReadWriteCloser) Write(p []byte) (int, error) {
++	n, err := c.ReadWriteCloser.Write(p)
++	c.client.sent.Add(uint64(n))
++	return n, err
++}
++
++type trafficNetConn struct {
++	net.Conn
++	client *TrafficClient
++}
++
++func (c *trafficNetConn) Read(p []byte) (int, error) {
++	n, err := c.Conn.Read(p)
++	c.client.received.Add(uint64(n))
++	return n, err
++}
++func (c *trafficNetConn) Write(p []byte) (int, error) {
++	n, err := c.Conn.Write(p)
++	c.client.sent.Add(uint64(n))
++	return n, err
++}
+diff --git a/client/traffic_test.go b/client/traffic_test.go
+new file mode 100644
+index 0000000..a1eaf79
+--- /dev/null
++++ b/client/traffic_test.go
+@@ -0,0 +1,84 @@
++package client
++
++import (
++	"bytes"
++	"context"
++	"errors"
++	"io"
++	"net"
++	"testing"
++)
++
++type testTrafficClient struct {
++	Client
++	l3   io.ReadWriteCloser
++	conn net.Conn
++	err  error
++}
++
++func (c *testTrafficClient) NewL3Conn() (io.ReadWriteCloser, error) { return c.l3, c.err }
++func (c *testTrafficClient) DialTCP(context.Context, *net.TCPAddr) (net.Conn, error) {
++	return c.conn, c.err
++}
++
++type testTrafficStream struct{ bytes.Buffer }
++
++func (*testTrafficStream) Close() error { return nil }
++
++func TestTrafficCountsL3Payload(t *testing.T) {
++	stream := &testTrafficStream{}
++	stream.WriteString("hello")
++	c := NewTrafficClient(&testTrafficClient{l3: stream})
++	conn, err := c.NewL3Conn()
++	if err != nil {
++		t.Fatal(err)
++	}
++	buffer := make([]byte, 3)
++	if _, err := io.ReadFull(conn, buffer); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := conn.Write([]byte("four")); err != nil {
++		t.Fatal(err)
++	}
++	received, sent := c.Totals()
++	if received != 3 || sent != 4 {
++		t.Fatalf("got received=%d sent=%d", received, sent)
++	}
++}
++func TestTrafficCountsTCPAndPreservesErrors(t *testing.T) {
++	left, right := net.Pipe()
++	defer left.Close()
++	defer right.Close()
++	c := NewTrafficClient(&testTrafficClient{conn: left})
++	conn, err := c.DialTCP(context.Background(), &net.TCPAddr{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	done := make(chan error, 1)
++	go func() { _, err := right.Write([]byte("abc")); done <- err }()
++	if _, err := io.ReadFull(conn, make([]byte, 3)); err != nil {
++		t.Fatal(err)
++	}
++	if err := <-done; err != nil {
++		t.Fatal(err)
++	}
++	go func() { _, err := io.ReadFull(right, make([]byte, 4)); done <- err }()
++	if _, err := conn.Write([]byte("four")); err != nil {
++		t.Fatal(err)
++	}
++	if err := <-done; err != nil {
++		t.Fatal(err)
++	}
++	received, sent := c.Totals()
++	if received != 3 || sent != 4 {
++		t.Fatalf("got received=%d sent=%d", received, sent)
++	}
++	want := errors.New("connect failed")
++	broken := NewTrafficClient(&testTrafficClient{err: want})
++	if _, err := broken.NewL3Conn(); !errors.Is(err, want) {
++		t.Fatalf("NewL3Conn error = %v", err)
++	}
++	if _, err := broken.DialTCP(context.Background(), &net.TCPAddr{}); !errors.Is(err, want) {
++		t.Fatalf("DialTCP error = %v", err)
++	}
++}
+diff --git a/main.go b/main.go
+index e5b5e3d..165bbf2 100644
+--- a/main.go
++++ b/main.go
+@@ -6,6 +6,7 @@ import (
+ 	"context"
+ 	"crypto"
+ 	"crypto/tls"
++	"fmt"
+ 	"net"
+ 	"os"
+ 	"os/signal"
+@@ -288,14 +289,23 @@ func main() {
+ 		}
+ 	}
+ 
++	trafficClient := client.NewTrafficClient(vpnClient)
++	go func() {
++		ticker := time.NewTicker(time.Second)
++		defer ticker.Stop()
++		for range ticker.C {
++			received, sent := trafficClient.Totals()
++			fmt.Fprintf(os.Stdout, "EZ4PRO_TRAFFIC %d %d\n", received, sent)
++		}
++	}()
+ 	var vpnStack stack.Stack
+ 	if conf.TCPTunnelMode {
+-		vpnStack, err = tcptunnel.NewStack(vpnClient)
++		vpnStack, err = tcptunnel.NewStack(trafficClient)
+ 		if err != nil {
+ 			log.Fatalf("TCP Tunnel stack setup error: %s", err)
+ 		}
+ 	} else if conf.TUNMode {
+-		vpnTUNStack, err := tun.NewStack(vpnClient, conf.DNSHijack, conf.FakeIP, ipResources)
++		vpnTUNStack, err := tun.NewStack(trafficClient, conf.DNSHijack, conf.FakeIP, ipResources)
+ 		if err != nil {
+ 			log.Fatalf("Tun stack setup error, make sure you are root user : %s", err)
+ 		}
+@@ -316,7 +326,7 @@ func main() {
+ 
+ 		vpnStack = vpnTUNStack
+ 	} else {
+-		vpnStack, err = gvisor.NewStack(vpnClient)
++		vpnStack, err = gvisor.NewStack(trafficClient)
+ 		if err != nil {
+ 			log.Fatalf("gVisor stack setup error: %s", err)
+ 		}
+diff --git a/stack/gvisor/stack.go b/stack/gvisor/stack.go
+index ccc73fc..104fd93 100644
+--- a/stack/gvisor/stack.go
++++ b/stack/gvisor/stack.go
+@@ -37,6 +37,8 @@ const NICID tcpip.NICID = 1
+ const MTU uint32 = 1400
+ const maxInboundPacketSize = 1500
+ 
++var serverShutdownOnce sync.Once
++
+ type Endpoint struct {
+ 	client clientpkg.Client
+ 
+@@ -112,10 +114,11 @@ func (ep *Endpoint) WritePackets(list stack.PacketBufferList) (int, tcpip.Error)
+ 				// trace, which obscures the actual cause.
+ 				if errors.Is(err, easyconnect.ErrSangforShutdown) {
+ 					log.Printf("WritePackets: server SHUTDOWN; running cleanup hooks and exiting for clean restart")
+-					if !hook_func.IsTerminal() {
++					serverShutdownOnce.Do(func() {
+ 						hook_func.ExecTerminalFunc(context.Background())
+-					}
+-					os.Exit(2)
++						os.Exit(2)
++					})
++					return list.Len(), nil
+ 				}
+ 
+ 				if hook_func.IsTerminal() {

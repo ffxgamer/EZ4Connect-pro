@@ -1,4 +1,5 @@
 #include "coreoutputparser.h"
+#include <QList>
 
 CoreOutputEvent CoreOutputParser::parse(const QString &output)
 {
@@ -76,6 +77,11 @@ CoreOutputEvent CoreOutputParser::parse(const QString &output)
     {
         return CoreOutputEvent::AuthExpired;
     }
+    if (output.contains("server returned SHUTDOWN")
+        || output.contains("server SHUTDOWN; running cleanup hooks"))
+    {
+        return CoreOutputEvent::ServerShutdown;
+    }
     if (output.contains("client setup error"))
     {
         return CoreOutputEvent::ClientFailed;
@@ -97,6 +103,24 @@ QString CoreOutputParser::graphCaptchaFile(const QString &output)
     }
 
     return output.mid(markerIndex + prefix.size()).trimmed();
+}
+
+bool CoreOutputParser::trafficTotals(const QByteArray &line, quint64 &received, quint64 &sent)
+{
+    const QList<QByteArray> fields = line.split(' ');
+    if (fields.size() != 3 || fields[0] != "EZ4PRO_TRAFFIC" || fields[1].isEmpty() || fields[2].isEmpty())
+        return false;
+    for (const QByteArray &number : {fields[1], fields[2]})
+        for (char c : number)
+            if (c < '0' || c > '9') return false;
+    bool receivedOk = false;
+    bool sentOk = false;
+    const quint64 parsedReceived = fields[1].toULongLong(&receivedOk);
+    const quint64 parsedSent = fields[2].toULongLong(&sentOk);
+    if (!receivedOk || !sentOk) return false;
+    received = parsedReceived;
+    sent = parsedSent;
+    return true;
 }
 
 bool CoreOutputParser::hasInteractivePrompt(const QByteArray &output)

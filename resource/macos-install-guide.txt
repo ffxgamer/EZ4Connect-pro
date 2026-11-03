@@ -1,0 +1,11 @@
+EZ4Connect Pro 首次打开说明
+
+1. 将 EZ4Connect Pro 拖入“应用程序”，然后打开应用。
+
+2. 如果系统阻止打开，请前往“系统设置”→“隐私与安全性”，找到 EZ4Connect Pro 并点击“仍要打开”。
+
+3. 如果系统提示应用已损坏，请先确认应用下载自本项目的 GitHub Releases。确认来源后，打开“终端”，复制并执行下面这一行，再重新打开应用：
+
+xattr -dr com.apple.quarantine "/Applications/EZ4Connect Pro.app"
+
+如果应用安装在其他位置，请将命令中的路径替换为实际位置。

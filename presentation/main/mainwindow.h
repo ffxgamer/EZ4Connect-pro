@@ -6,6 +6,7 @@
 #include <QCloseEvent>
 #include <QSettings>
 #include <QPointer>
+#include <QElapsedTimer>
 
 #include "application/connectionsession.h"
 #include "application/profileservice.h"
@@ -23,6 +24,7 @@ class ApplicationLogger;
 class ApplicationLogFile;
 class ConnectionUiController;
 class UpdateChecker;
+class MacOSStatusItem;
 
 class MainWindow : public QMainWindow
 {
@@ -71,6 +73,13 @@ private:
 
     void setupTrayIcon();
 
+    void showMainWindow();
+
+#ifdef Q_OS_MACOS
+    void updateTrafficTotals(quint64 received, quint64 sent);
+    void resetTrafficStatus(bool connected);
+#endif
+
     void setupProfileMenu();
 
     void refreshProfileMenu();
@@ -102,6 +111,14 @@ private:
 
     Ui::MainWindow *ui;
     QSystemTrayIcon *trayIcon;
+#ifdef Q_OS_MACOS
+    MacOSStatusItem *macStatusItem = nullptr;
+    bool trafficConnected = false;
+    quint64 lastReceived = 0;
+    quint64 lastSent = 0;
+    QElapsedTimer trafficSampleTimer;
+    QElapsedTimer trafficLastSeen;
+#endif
     QMenu *trayMenu;
     QMenu *trayProfileMenu;
     QAction *trayConnectAction;
