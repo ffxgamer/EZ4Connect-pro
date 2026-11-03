@@ -6,11 +6,7 @@ EZ4Connect Pro 基于 [EZ4Connect](https://github.com/chenx-dust/EZ4Connect)，�
 
 ## 使用方式
 
-从 [Releases](https://github.com/ffxgamer/EZ4Connect-pro/releases/latest) 下载适合系统和处理器架构的版本：
-
-- **Windows**：下载 `windows-x64.zip` 或 `windows-arm64.zip`，解压后运行 `EZ4Connect.exe`。
-- **macOS**：下载 `macos-arm64.dmg`（Apple 芯片）或 `macos-x64.dmg`（Intel 芯片），打开后将应用拖入「应用程序」。
-- **Linux**：下载对应架构的 `.AppImage`，赋予执行权限后运行，例如 `chmod +x EZ4Connect-pro-*.AppImage`。
+从 [Releases](https://github.com/ffxgamer/EZ4Connect-pro/releases/latest) 下载 macOS Apple 芯片版本的 `macos-arm64.dmg`，打开后将应用拖入「应用程序」。
 
 首次使用时，跟随配置引导填写服务器地址、账号和密码，或在「设置」中配置。选好配置后，点击「连接服务器」。如需使用系统代理，可在应用中启用「设置系统代理」。
 
